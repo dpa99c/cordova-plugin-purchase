@@ -65,8 +65,25 @@ SOFTWARE.
         <source-file src="src/ios/SKProductDiscount+LocalizedPrice.m" />
         <header-file src="src/ios/FileUtility.h" />
         <source-file src="src/ios/FileUtility.m" />
+        <header-file src="src/ios/RMAppReceipt.h" />
+        <source-file src="src/ios/RMAppReceipt.m" />
+        <header-file src="src/ios/RMStoreAppReceiptVerifier.h" />
+        <source-file src="src/ios/RMStoreAppReceiptVerifier.m" />
+        <header-file src="src/ios/RMStore.h" />
+        <source-file src="src/ios/RMStore.m" />
+
+        <resource-file src="src/ios/AppleIncRootCertificate.cer" />
 
         <framework src="StoreKit.framework" />
+
+        <podspec>
+            <config>
+                <source url="https://cdn.cocoapods.org/"/>
+            </config>
+            <pods>
+                <pod name="OpenSSL-Universal" spec="1.1.1100"/>
+            </pods>
+        </podspec>
     </platform>
 
     <!-- osx -->

@@ -234,6 +234,9 @@ declare namespace IapStore {
     ERR_INVALID_SIGNATURE: number;
     /** Error: Parameters are missing in a payment discount. */
     ERR_MISSING_OFFER_PARAMS: number;
+    /** Error: Failed to set bundle details. */
+    ERR_SET_BUNDLE_DETAILS: number;
+
 
     /** Validation Error: Request body is incorrect */
     INVALID_PAYLOAD: number;

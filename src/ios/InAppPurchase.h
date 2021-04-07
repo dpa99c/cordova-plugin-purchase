@@ -18,6 +18,7 @@
 #import "SKProduct+LocalizedPrice.h"
 #import "SKProductDiscount+LocalizedPrice.h"
 #import "FileUtility.h"
+#import "RMStoreAppReceiptVerifier.h"
 
 @interface InAppPurchase : CDVPlugin <SKPaymentTransactionObserver> {
     NSMutableDictionary *products;
@@ -25,12 +26,15 @@
     NSMutableDictionary *unfinishedTransactions;
     NSMutableDictionary *currentDownloads;
     NSMutableArray *pendingTransactionUpdates;
+    RMStoreAppReceiptVerifier *verifier;
 }
 @property (nonatomic,retain) NSMutableDictionary *products;
 @property (nonatomic,retain) NSMutableDictionary *retainer;
 @property (nonatomic, retain) NSMutableDictionary *currentDownloads;
 @property (nonatomic, retain) NSMutableDictionary *unfinishedTransactions;
 @property (nonatomic, retain) NSMutableArray *pendingTransactionUpdates;
+@property (nonatomic, retain) RMStoreAppReceiptVerifier *verifier;
+
 
 - (void) canMakePayments: (CDVInvokedUrlCommand*)command;
 
@@ -39,6 +43,7 @@
 - (void) purchase: (CDVInvokedUrlCommand*)command;
 - (void) appStoreReceipt: (CDVInvokedUrlCommand*)command;
 - (void) appStoreRefreshReceipt: (CDVInvokedUrlCommand*)command;
+- (void) setBundleDetails: (CDVInvokedUrlCommand*)command;
 
 - (void) pause: (CDVInvokedUrlCommand*)command;
 - (void) resume: (CDVInvokedUrlCommand*)command;
@@ -74,4 +79,5 @@
 
 @property (nonatomic,retain) InAppPurchase* plugin;
 @property (nonatomic,retain) CDVInvokedUrlCommand* command;
+
 @end

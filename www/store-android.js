@@ -360,6 +360,7 @@ var ERROR_CODES_BASE = 6777000;
 /*///*/     store.ERR_INVALID_OFFER_PRICE = ERROR_CODES_BASE + 30; // Error code indicating that the price you specified in App Store Connect is no longer valid.
 /*///*/     store.ERR_INVALID_SIGNATURE = ERROR_CODES_BASE + 31; // Error code indicating that the signature in a payment discount is not valid.
 /*///*/     store.ERR_MISSING_OFFER_PARAMS = ERROR_CODES_BASE + 32; // Error code indicating that parameters are missing in a payment discount.
+/*///*/     store.ERR_SET_BUNDLE_DETAILS = ERROR_CODES_BASE + 33; // Failed to set bundle details
 
 ///
 /// ### product states
