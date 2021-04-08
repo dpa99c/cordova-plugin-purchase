@@ -303,10 +303,26 @@ InAppPurchase.prototype.load = function (productIds, success, error) {
  * @param {String} transactionId
  *    Identifier of the transaction to finish.
  *
+ * @param {Function} onSuccess (optional)
+ *    Callback function to invoke on successfully finishing transaction.
+ *
+ * @param {Function} onError (optional)
+ *    Callback function to invoke on failure finishing transaction.
+ *
  * You have to call this method manually except when using the autoFinish option.
  */
-InAppPurchase.prototype.finish = function (transactionId) {
-    exec('finishTransaction', [transactionId], noop, noop);
+InAppPurchase.prototype.finish = function (transactionId, onSuccess, onError) {
+    var success = function () {
+        log('successfully finished transaction '+transactionId);
+        if(onSuccess) protectCall(onSuccess, 'finish.success');
+    };
+    var error = function (errMessage) {
+        log('failed to finish transaction'+transactionId);
+        log(errMessage);
+        var message = 'Finish transaction: ' + errMessage;
+        if(onError) protectCall(onError, 'finish.error', store.ERR_FINISH, message);
+    };
+    exec('finishTransaction', [transactionId], success, error);
 };
 
 var pendingUpdates = [], pendingDownloadUpdates = [];
