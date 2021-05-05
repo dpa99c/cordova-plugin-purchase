@@ -137,6 +137,12 @@ InAppBilling.prototype.acknowledgePurchase = function (success, fail, productId,
 	}
 	return cordova.exec(success, errorCb(fail), "InAppBillingPlugin", "acknowledgePurchase", [productId, transactionId, developerPayload]);
 };
+InAppBilling.prototype.acknowledgePurchaseByToken = function (success, fail, purchaseToken) {
+    if (this.options.showLog) {
+        log('acknowledgePurchaseByToken()');
+    }
+    return cordova.exec(success, errorCb(fail), "InAppBillingPlugin", "acknowledgePurchaseByToken", [purchaseToken]);
+};
 InAppBilling.prototype.getAvailableProducts = function (success, fail) {
 	if (this.options.showLog) {
 		log('getAvailableProducts()');

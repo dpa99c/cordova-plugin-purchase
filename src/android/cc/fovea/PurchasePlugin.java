@@ -163,8 +163,9 @@ public class PurchasePlugin
         final String sku = data.getString(0);
         consumePurchase(sku);
       } else if ("acknowledgePurchase".equals(action)) {
-        final String sku = data.getString(0);
-        acknowledgePurchase(sku);
+        acknowledgePurchaseBySku(data.getString(0));
+      } else if ("acknowledgePurchaseByToken".equals(action)) {
+        acknowledgePurchaseByToken(data.getString(0));
       } else if ("buy".equals(action)) {
         buy(data);
       } else if ("subscribe".equals(action)) {
@@ -873,8 +874,8 @@ public class PurchasePlugin
   }
 
   // Acknowledge a purchase
-  private void acknowledgePurchase(final String sku) throws JSONException {
-    Log.d(mTag, "acknowledgePurchase(" + sku + ")");
+  private void acknowledgePurchaseBySku(final String sku) throws JSONException {
+    Log.d(mTag, "acknowledgePurchaseBySku(" + sku + ")");
     // Find the purchaseToken from sku
     final Purchase purchase = findPurchaseByProductId(sku);
     if (purchase == null) {
@@ -883,11 +884,28 @@ public class PurchasePlugin
       return;
     }
     final String purchaseToken = purchase.getPurchaseToken();
+    acknowledgePurchase(purchaseToken);
+  }
+
+  private void acknowledgePurchaseByToken(final String purchaseToken) throws JSONException {
+    Log.d(mTag, "acknowledgePurchaseByToken(" + purchaseToken + ")");
+    // Find the purchaseToken from sku
+    final Purchase purchase = findPurchaseByToken(purchaseToken);
+    if (purchase == null) {
+      Log.w(mTag, "acknowledgePurchaseByToken() -> No such purchase");
+      callError(Constants.ERR_PURCHASE, "ITEM_NOT_OWNED");
+      return;
+    }
+    acknowledgePurchase(purchaseToken);
+  }
+
+
+  private void acknowledgePurchase(final String purchaseToken) {
     executeServiceRequest(() -> {
       final AcknowledgePurchaseParams params = AcknowledgePurchaseParams.newBuilder()
-        .setPurchaseToken(purchaseToken)
-        // .setDeveloperPayload(developerPayload) (removed in v3)
-        .build();
+              .setPurchaseToken(purchaseToken)
+              // .setDeveloperPayload(developerPayload) (removed in v3)
+              .build();
       mBillingClient.acknowledgePurchase(params, this);
     });
   }
