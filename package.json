@@ -30,7 +30,8 @@
   ],
   "scripts": {
     "test": "make test-js",
-    "coverage": "make test-js-coverage"
+    "coverage": "make test-js-coverage",
+    "postinstall": "node ./src/ios/local-receipt-validation/apply-module.js"
   },
   "author": "Jean-Christophe Hoelt <hoelt@fovea.cc>",
   "license": "MIT",
@@ -38,6 +39,9 @@
     "url": "https://github.com/j3k0/cordova-plugin-purchase/issues"
   },
   "homepage": "https://github.com/j3k0/cordova-plugin-purchase",
+  "dependencies": {
+    "xml-js": "^1.6.11"
+  },
   "devDependencies": {
     "acorn": "^6.3.0",
     "babel-eslint": "^10.0.3",

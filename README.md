@@ -58,6 +58,17 @@ It lets you handle in-app purchases on many platforms with a single codebase.
 cordova plugin add cordova-plugin-purchase
 ```
 
+#### Plugin variables
+When installing the plugin, you can set plugin variables at plugin installation time.
+Note: in order to change the value of a plugin variable for an installed plugin, you must uninstall and reinstall the plugin with the new value.
+
+Currently the following plugin variables are supported:
+
+- `LOCAL_RECEIPT_VALIDATION` - whether to perform [local (on-device) receipt validation](doc/ios.md#on-device-validation)
+  - Defaults to `false` if not specified.
+  - To enable, set the value to `true` when installing the plugin:
+    - `cordova plugin add cordova-plugin-purchase --variable LOCAL_RECEIPT_VALIDATION=true`
+
 ### Install the plugin (PhoneGap)
 
 Add the following to your `config.xml` file:
