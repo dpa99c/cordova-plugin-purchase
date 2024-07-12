@@ -171,7 +171,7 @@ var CdvPurchase;
                     this.log.debug("Got a verified AppStore receipt.");
                     latestReceipt = receipt;
                 }
-            });
+            }, 'appStoreDiscountEligibilityDeterminer_listening');
             const determiner = (_appStoreReceipt, requests, callback) => {
                 this.log.debug("AppStore eligibility determiner");
                 if (latestReceipt) {
@@ -186,7 +186,7 @@ var CdvPurchase;
                     }
                 };
                 this.log.debug("Waiting for receipt");
-                this.store.when().verified(onVerified);
+                this.store.when().verified(onVerified, 'appStoreDiscountEligibilityDeterminer_waiting');
             };
             determiner.cacheReceipt = function (receipt) {
                 latestReceipt = receipt;
@@ -283,12 +283,12 @@ var CdvPurchase;
          */
         debug(o) { log(this.store.verbosity, LogLevel.DEBUG, this.prefix, o); }
         /**
-         * Add warning logs on a console describing an exceptions.
+         * Add warning logs on a console describing an exception.
          *
          * This method is mostly used when executing user registered callbacks.
          *
          * @param context - a string describing why the method was called
-         * @param error - a javascript Error object thrown by a exception
+         * @param error - a javascript Error object thrown by an exception
          */
         logCallbackException(context, err) {
             this.warn("A callback in \'" + context + "\' failed with an exception.");
@@ -312,8 +312,8 @@ var CdvPurchase;
      *
      * @example
      * Logger.console = {
-     *   log: (message) => { remoteLog('LOG', message); }
-     *   warn: (message) => { remoteLog('WARN', message); }
+     *   log: (message) => { remoteLog('LOG', message); },
+     *   warn: (message) => { remoteLog('WARN', message); },
      *   error: (message) => { remoteLog('ERROR', message); }
      * }
      */
@@ -573,7 +573,7 @@ var CdvPurchase;
                         yield (adapter === null || adapter === void 0 ? void 0 : adapter.handleReceiptValidationResponse(receipt, payload));
                         if (payload.ok) {
                             const vr = this.addVerifiedReceipt(receipt, payload.data);
-                            this.controller.verifiedCallbacks.trigger(vr);
+                            this.controller.verifiedCallbacks.trigger(vr, 'payload_ok');
                             // this.verifiedCallbacks.trigger(data.receipt);
                         }
                         else if (payload.code === CdvPurchase.ErrorCode.VALIDATOR_SUBSCRIPTION_EXPIRED) {
@@ -585,14 +585,14 @@ var CdvPurchase;
                                     if (col.transactionId === transactionId)
                                         col.isExpired = true;
                                 });
-                                this.controller.verifiedCallbacks.trigger(vr);
+                                this.controller.verifiedCallbacks.trigger(vr, 'payload_expired');
                             }
                             else {
-                                this.controller.unverifiedCallbacks.trigger({ receipt, payload });
+                                this.controller.unverifiedCallbacks.trigger({ receipt, payload }, 'no_verified_receipt');
                             }
                         }
                         else {
-                            this.controller.unverifiedCallbacks.trigger({ receipt, payload });
+                            this.controller.unverifiedCallbacks.trigger({ receipt, payload }, 'validator_error');
                         }
                     }
                     catch (err) {
@@ -601,7 +601,7 @@ var CdvPurchase;
                                 ok: false,
                                 code: CdvPurchase.ErrorCode.VERIFICATION_FAILED,
                                 message: err.message,
-                            } });
+                            } }, 'validator_exception');
                     }
                 });
                 receipts.forEach(receipt => this.runOnReceipt(receipt, onResponse));
@@ -804,6 +804,9 @@ var CdvPurchase;
              */
             initialize(platforms, context) {
                 return __awaiter(this, void 0, void 0, function* () {
+                    if (typeof platforms === 'string') {
+                        platforms = [platforms];
+                    }
                     const newPlatforms = platforms.map(p => typeof p === 'string' ? { platform: p } : p).filter(p => !this.find(p.platform));
                     const log = context.log.child('Adapters');
                     log.info("Adding platforms: " + JSON.stringify(newPlatforms));
@@ -906,7 +909,7 @@ var CdvPurchase;
                 this.supportedPlatforms = platforms;
                 if (this.supportedPlatforms.length === this.platformWithReceiptsReady.length) {
                     this.log.debug('triggering receiptsReady()');
-                    this.delegate.receiptsReadyCallbacks.trigger();
+                    this.delegate.receiptsReadyCallbacks.trigger(undefined, 'adapterListener_setSupportedPlatforms');
                 }
             }
             /**
@@ -927,7 +930,7 @@ var CdvPurchase;
                     this.log.debug(`receiptsReady: ${platform} (${this.platformWithReceiptsReady.length}/${this.supportedPlatforms.length})`);
                     if (this.platformWithReceiptsReady.length === this.supportedPlatforms.length) {
                         this.log.debug('triggering receiptsReady()');
-                        this.delegate.receiptsReadyCallbacks.trigger();
+                        this.delegate.receiptsReadyCallbacks.trigger(undefined, 'adapterListener_receiptsReady');
                     }
                 }
             }
@@ -935,7 +938,7 @@ var CdvPurchase;
              * Trigger the "updated" event for each product.
              */
             productsUpdated(platform, products) {
-                products.forEach(product => this.delegate.updatedCallbacks.trigger(product));
+                products.forEach(product => this.delegate.updatedCallbacks.trigger(product, 'adapterListener_productsUpdated'));
             }
             /**
              * Triggers the "approved", "pending" and "finished" events for transactions.
@@ -948,27 +951,32 @@ var CdvPurchase;
              */
             receiptsUpdated(platform, receipts) {
                 const now = +new Date();
+                this.log.debug("receiptsUpdated: " + JSON.stringify(receipts));
                 receipts.forEach(receipt => {
-                    this.delegate.updatedReceiptCallbacks.trigger(receipt);
+                    this.delegate.updatedReceiptCallbacks.trigger(receipt, 'adapterListener_receiptsUpdated');
                     receipt.transactions.forEach(transaction => {
                         const transactionToken = StoreAdapterListener.makeTransactionToken(transaction);
                         const tokenWithState = transactionToken + '@' + transaction.state;
                         const lastState = this.lastTransactionState[transactionToken];
                         // Retrigger "approved", so validation is rerun on potential update.
                         if (transaction.state === CdvPurchase.TransactionState.APPROVED) {
-                            // prevent calling approved twice in a very short period (5 seconds).
-                            if ((this.lastCallTimeForState[tokenWithState] | 0) < now - 5000) {
-                                this.delegate.approvedCallbacks.trigger(transaction);
+                            // prevent calling approved twice in a very short period (60 seconds).
+                            if ((this.lastCallTimeForState[tokenWithState] | 0) < now - 60000) {
+                                this.delegate.approvedCallbacks.trigger(transaction, 'adapterListener_receiptsUpdated_approved');
                                 this.lastCallTimeForState[tokenWithState] = now;
                             }
                         }
                         else if (lastState !== transaction.state) {
-                            if (transaction.state === CdvPurchase.TransactionState.FINISHED) {
-                                this.delegate.finishedCallbacks.trigger(transaction);
+                            if (transaction.state === CdvPurchase.TransactionState.INITIATED) {
+                                this.delegate.initiatedCallbacks.trigger(transaction, 'adapterListener_receiptsUpdated_initiated');
+                                this.lastCallTimeForState[tokenWithState] = now;
+                            }
+                            else if (transaction.state === CdvPurchase.TransactionState.FINISHED) {
+                                this.delegate.finishedCallbacks.trigger(transaction, 'adapterListener_receiptsUpdated_finished');
                                 this.lastCallTimeForState[tokenWithState] = now;
                             }
                             else if (transaction.state === CdvPurchase.TransactionState.PENDING) {
-                                this.delegate.pendingCallbacks.trigger(transaction);
+                                this.delegate.pendingCallbacks.trigger(transaction, 'adapterListener_receiptsUpdated_pending');
                                 this.lastCallTimeForState[tokenWithState] = now;
                             }
                         }
@@ -1002,22 +1010,22 @@ var CdvPurchase;
                 this.finalStateMode = finalStateMode;
             }
             /** Add a callback to the list */
-            push(callback) {
+            push(callback, callbackName) {
                 if (this.finalStateMode && this.numTriggers > 0) {
                     callback(this.lastTriggerArgument);
                 }
                 else {
                     // Detecting double registration to help with debugging issues
                     for (const existing of this.callbacks) {
-                        if (existing === callback) {
+                        if (existing.callback === callback) {
                             throw new Error('REGISTERING THE SAME CALLBACK TWICE? This is indicative of a bug in your integration.');
                         }
                     }
-                    this.callbacks.push(callback);
+                    this.callbacks.push({ callback, callbackName });
                 }
             }
             /** Call all registered callbacks with the given value */
-            trigger(value) {
+            trigger(value, reason) {
                 this.lastTriggerArgument = value;
                 this.numTriggers++;
                 const callbacks = this.callbacks;
@@ -1026,12 +1034,12 @@ var CdvPurchase;
                     this.callbacks = [];
                 }
                 callbacks.forEach(callback => {
-                    CdvPurchase.Utils.safeCall(this.logger, this.className, callback, value);
+                    CdvPurchase.Utils.safeCall(this.logger, this.className, callback.callback, value, callback.callbackName, reason);
                 });
             }
             /** Remove a callback from the list */
             remove(callback) {
-                this.callbacks = this.callbacks.filter(el => el !== callback);
+                this.callbacks = this.callbacks.filter(el => el.callback !== callback);
             }
         }
         Internal.Callbacks = Callbacks;
@@ -1060,9 +1068,9 @@ var CdvPurchase;
                 this.readyCallbacks.push(cb);
             }
             /** Calls the ready callbacks */
-            trigger() {
+            trigger(reason) {
                 this.isReady = true;
-                this.readyCallbacks.forEach(cb => CdvPurchase.Utils.safeCall(this.logger, 'ready()', cb, undefined));
+                this.readyCallbacks.forEach(cb => CdvPurchase.Utils.safeCall(this.logger, 'ready()', cb, undefined, undefined, reason));
                 this.readyCallbacks = [];
             }
             remove(cb) {
@@ -1135,8 +1143,8 @@ var CdvPurchase;
             constructor(when) {
                 this.monitors = [];
                 when
-                    .approved(transaction => this.callOnChange(transaction))
-                    .finished(transaction => this.callOnChange(transaction));
+                    .approved(transaction => this.callOnChange(transaction), 'transactionStateMonitors_callOnChange')
+                    .finished(transaction => this.callOnChange(transaction), 'transactionStateMonitors_callOnChange');
             }
             findMonitors(transaction) {
                 return this.monitors.filter(monitor => monitor.transaction.platform === transaction.platform
@@ -1189,7 +1197,7 @@ var CdvPurchase;
                     setTimeout(() => {
                         this.controller.receiptsVerified();
                     }, 0);
-                });
+                }, 'receiptsMonitor_callReceiptsVerified');
             }
             launch() {
                 const check = () => {
@@ -1204,8 +1212,8 @@ var CdvPurchase;
                     }
                 };
                 this.controller.when()
-                    .verified(check)
-                    .unverified(check)
+                    .verified(check, 'receiptsMonitor_check')
+                    .unverified(check, 'receiptsMonitor_check')
                     .receiptsReady(() => {
                     this.log.debug('receiptsReady...');
                     if (!this.controller.hasLocalReceipts() || !this.controller.hasValidator()) {
@@ -1218,21 +1226,23 @@ var CdvPurchase;
                         this.log.debug('keep checking every 10s...');
                         check();
                     }, 10000);
-                });
+                }, 'receiptsMonitor_setup');
             }
         }
         Internal.ReceiptsMonitor = ReceiptsMonitor;
     })(Internal = CdvPurchase.Internal || (CdvPurchase.Internal = {}));
 })(CdvPurchase || (CdvPurchase = {}));
-/**
- * The platform doesn't send notifications when a subscription expires.
- *
- * However this is useful, so let's do just that.
- */
 var CdvPurchase;
 (function (CdvPurchase) {
     let Internal;
     (function (Internal) {
+        /**
+         * Send a notification when a subscription expires.
+         *
+         * The platform doesn't send notifications when a subscription expires.
+         *
+         * However this is useful, so let's do just that.
+         */
         class ExpiryMonitor {
             /** Track active local transactions */
             // activeTransactions: {
@@ -1338,7 +1348,7 @@ var CdvPurchase;
     /**
      * Current release number of the plugin.
      */
-    CdvPurchase.PLUGIN_VERSION = '13.9.0';
+    CdvPurchase.PLUGIN_VERSION = '13.11.1';
     /**
      * Entry class of the plugin.
      */
@@ -1378,6 +1388,8 @@ var CdvPurchase;
             this.updatedReceiptsCallbacks = new CdvPurchase.Internal.Callbacks(this.log, 'receiptUpdated()');
             /** Callbacks when a product is owned */
             // private ownedCallbacks = new Callbacks<Product>();
+            /** Callbacks when a transaction is initiated */
+            this.initiatedCallbacks = new CdvPurchase.Internal.Callbacks(this.log, 'initiated()');
             /** Callbacks when a transaction has been approved */
             this.approvedCallbacks = new CdvPurchase.Internal.Callbacks(this.log, 'approved()');
             /** Callbacks when a transaction has been finished */
@@ -1409,6 +1421,7 @@ var CdvPurchase;
             this.listener = new CdvPurchase.Internal.StoreAdapterListener({
                 updatedCallbacks: this.updatedCallbacks,
                 updatedReceiptCallbacks: this.updatedReceiptsCallbacks,
+                initiatedCallbacks: this.initiatedCallbacks,
                 approvedCallbacks: this.approvedCallbacks,
                 finishedCallbacks: this.finishedCallbacks,
                 pendingCallbacks: this.pendingCallbacks,
@@ -1432,7 +1445,7 @@ var CdvPurchase;
                 numValidationResponses: () => this._validator.numResponses,
                 off: this.off.bind(this),
                 when: this.when.bind(this),
-                receiptsVerified: () => { store.receiptsVerifiedCallbacks.trigger(); },
+                receiptsVerified: () => { store.receiptsVerifiedCallbacks.trigger(undefined, 'receipts_monitor_controller'); },
                 log: this.log,
             }).launch();
             this.expiryMonitor = new CdvPurchase.Internal.ExpiryMonitor({
@@ -1486,7 +1499,7 @@ var CdvPurchase;
         register(product) {
             const errors = this.registeredProducts.add(product);
             errors.forEach(error => {
-                CdvPurchase.store.errorCallbacks.trigger(error);
+                CdvPurchase.store.errorCallbacks.trigger(error, 'register_error');
                 this.log.error(error);
             });
         }
@@ -1501,7 +1514,7 @@ var CdvPurchase;
                     this.log.warn('store.initialized() has been called already.');
                     return [];
                 }
-                this.log.info('initialize()');
+                this.log.info('initialize(' + JSON.stringify(platforms) + ') v' + CdvPurchase.PLUGIN_VERSION);
                 this.initializedHasBeenCalled = true;
                 this.lastUpdate = +new Date();
                 const store = this;
@@ -1521,7 +1534,7 @@ var CdvPurchase;
                     },
                 });
                 ret.then(() => {
-                    this._readyCallbacks.trigger();
+                    this._readyCallbacks.trigger('initialize_promise_resolved');
                     this.listener.setSupportedPlatforms(this.adapters.list.filter(a => a.isSupported).map(a => a.id));
                 });
                 return ret;
@@ -1555,7 +1568,7 @@ var CdvPurchase;
                     const products = yield ((_a = this.adapters.findReady(registration.platform)) === null || _a === void 0 ? void 0 : _a.loadProducts(registration.products));
                     products === null || products === void 0 ? void 0 : products.forEach(p => {
                         if (p instanceof CdvPurchase.Product)
-                            this.updatedCallbacks.trigger(p);
+                            this.updatedCallbacks.trigger(p, 'update_has_loaded_products');
                     });
                 }
             });
@@ -1579,17 +1592,18 @@ var CdvPurchase;
          */
         when() {
             const ret = {
-                productUpdated: (cb) => (this.updatedCallbacks.push(cb), ret),
-                receiptUpdated: (cb) => (this.updatedReceiptsCallbacks.push(cb), ret),
-                updated: (cb) => (this.updatedCallbacks.push(cb), this.updatedReceiptsCallbacks.push(cb), ret),
+                productUpdated: (cb, callbackName) => (this.updatedCallbacks.push(cb, callbackName), ret),
+                receiptUpdated: (cb, callbackName) => (this.updatedReceiptsCallbacks.push(cb, callbackName), ret),
+                updated: (cb, callbackName) => (this.updatedCallbacks.push(cb, callbackName), this.updatedReceiptsCallbacks.push(cb, callbackName), ret),
                 // owned: (cb: Callback<Product>) => (this.ownedCallbacks.push(cb), ret),
-                approved: (cb) => (this.approvedCallbacks.push(cb), ret),
-                pending: (cb) => (this.pendingCallbacks.push(cb), ret),
-                finished: (cb) => (this.finishedCallbacks.push(cb), ret),
-                verified: (cb) => (this.verifiedCallbacks.push(cb), ret),
-                unverified: (cb) => (this.unverifiedCallbacks.push(cb), ret),
-                receiptsReady: (cb) => (this.receiptsReadyCallbacks.push(cb), ret),
-                receiptsVerified: (cb) => (this.receiptsVerifiedCallbacks.push(cb), ret),
+                approved: (cb, callbackName) => (this.approvedCallbacks.push(cb, callbackName), ret),
+                initiated: (cb, callbackName) => (this.initiatedCallbacks.push(cb, callbackName), ret),
+                pending: (cb, callbackName) => (this.pendingCallbacks.push(cb, callbackName), ret),
+                finished: (cb, callbackName) => (this.finishedCallbacks.push(cb, callbackName), ret),
+                verified: (cb, callbackName) => (this.verifiedCallbacks.push(cb, callbackName), ret),
+                unverified: (cb, callbackName) => (this.unverifiedCallbacks.push(cb, callbackName), ret),
+                receiptsReady: (cb, callbackName) => (this.receiptsReadyCallbacks.push(cb, callbackName), ret),
+                receiptsVerified: (cb, callbackName) => (this.receiptsVerifiedCallbacks.push(cb, callbackName), ret),
             };
             return ret;
         }
@@ -1623,8 +1637,8 @@ var CdvPurchase;
          *     monitor.stop();
          * });
          */
-        monitor(transaction, onChange) {
-            return this.transactionStateMonitors.start(transaction, CdvPurchase.Utils.safeCallback(this.log, 'monitor()', onChange));
+        monitor(transaction, onChange, callbackName) {
+            return this.transactionStateMonitors.start(transaction, CdvPurchase.Utils.safeCallback(this.log, 'monitor()', onChange, callbackName, 'transactionStateMonitors_stateChanged'));
         }
         /**
          * List of all active products.
@@ -1781,7 +1795,7 @@ var CdvPurchase;
                         if (result.state === CdvPurchase.TransactionState.FINISHED)
                             monitor.stop();
                     };
-                    const monitor = this.monitor(result, onStateChange);
+                    const monitor = this.monitor(result, onStateChange, 'requestPayment_onStateChange');
                 }
             });
             return promise;
@@ -1892,7 +1906,7 @@ var CdvPurchase;
          * - on Android: `GOOGLE_PLAY`
          */
         defaultPlatform() {
-            switch (window.cordova.platformId) {
+            switch (CdvPurchase.Utils.platformId()) {
                 case 'android': return CdvPurchase.Platform.GOOGLE_PLAY;
                 case 'ios': return CdvPurchase.Platform.APPLE_APPSTORE;
                 default: return CdvPurchase.Platform.TEST;
@@ -1917,7 +1931,7 @@ var CdvPurchase;
          * @internal
          */
         triggerError(error) {
-            this.errorCallbacks.trigger(error);
+            this.errorCallbacks.trigger(error, 'triggerError');
         }
     }
     CdvPurchase.Store = Store;
@@ -1929,23 +1943,18 @@ if (window.cordova) {
 else {
     initCDVPurchase();
 }
+/** @private */
 function initCDVPurchase() {
+    var _a;
     console.log('Create CdvPurchase...');
-    /*
-    if (window.CdvPurchase) {
-        Object.assign(window.CdvPurchase, CdvPurchase, { store: window.CdvPurchase.store });
+    const oldStore = (_a = window.CdvPurchase) === null || _a === void 0 ? void 0 : _a.store;
+    window.CdvPurchase = CdvPurchase;
+    if (oldStore) {
+        window.CdvPurchase.store = oldStore;
     }
     else {
-        window.CdvPurchase = CdvPurchase;
-    }
-    if (!window.CdvPurchase.store) {
         window.CdvPurchase.store = new CdvPurchase.Store();
-        // Let's maximize backward compatibility
-        Object.assign(window.CdvPurchase.store, CdvPurchase.LogLevel, CdvPurchase.ProductType, CdvPurchase.ErrorCode, CdvPurchase.Platform);
     }
-    */
-    window.CdvPurchase = CdvPurchase;
-    window.CdvPurchase.store = new CdvPurchase.Store();
     // Let's maximize backward compatibility
     Object.assign(window.CdvPurchase.store, CdvPurchase.LogLevel, CdvPurchase.ProductType, CdvPurchase.ErrorCode, CdvPurchase.Platform);
 }
@@ -2011,7 +2020,13 @@ var CdvPurchase;
         /** Test platform */
         Platform["TEST"] = "test";
     })(Platform = CdvPurchase.Platform || (CdvPurchase.Platform = {}));
-    /** Possible states of a product */
+    /**
+     * Possible states of a transaction.
+     *
+     * ```
+     * INITIATED → PENDING (optional) → APPROVED → FINISHED
+     * ```
+     */
     let TransactionState;
     (function (TransactionState) {
         // REQUESTED = 'requested',
@@ -2438,6 +2453,8 @@ var CdvPurchase;
                 this.minTimeout = minTimeout;
                 this.maxTimeout = maxTimeout;
                 this.retryTimeout = minTimeout;
+                // From https://github.com/apache/cordova-plugin-network-information
+                // This event fires when an application goes online, and the device becomes connected to the Internet.
                 document.addEventListener("online", () => {
                     const a = this.retries;
                     this.retries = [];
@@ -2682,7 +2699,7 @@ var CdvPurchase;
             }
             /** Returns true on iOS, the only platform supported by this adapter */
             get isSupported() {
-                return window.cordova.platformId === 'ios';
+                return CdvPurchase.Utils.platformId() === 'ios';
             }
             upsertTransactionInProgress(productId, state) {
                 const transactionId = virtualTransactionId(productId);
@@ -2708,7 +2725,7 @@ var CdvPurchase;
                 const transactionId = virtualTransactionId(productId);
                 this.pseudoReceipt.transactions = this.pseudoReceipt.transactions.filter(t => t.transactionId !== transactionId);
             }
-            /** Insert or update a transaction in the pseudo receipt */
+            /** Insert or update a transaction in the pseudo receipt, based on data collected from the native side */
             upsertTransaction(productId, transactionId, state) {
                 return __awaiter(this, void 0, void 0, function* () {
                     return new Promise(resolve => {
@@ -4283,7 +4300,7 @@ var CdvPurchase;
                 }
                 /** Returns true on Android, the only platform supported by this Braintree bridge */
                 static isSupported() {
-                    return window.cordova.platformId === 'android';
+                    return CdvPurchase.Utils.platformId() === 'android';
                 }
                 isApplePaySupported() {
                     return __awaiter(this, void 0, void 0, function* () {
@@ -4449,7 +4466,7 @@ var CdvPurchase;
                 static isSupported(log) {
                     return new Promise(resolve => {
                         var _a;
-                        if (window.cordova.platformId !== 'ios') {
+                        if (CdvPurchase.Utils.platformId() !== 'ios') {
                             log.info('BraintreeApplePayPlugin is only available for ios.');
                             return resolve(false);
                         }
@@ -4572,7 +4589,7 @@ var CdvPurchase;
                     return window.CdvPurchaseBraintree;
                 }
                 static isSupported() {
-                    return window.cordova.platformId === 'ios';
+                    return CdvPurchase.Utils.platformId() === 'ios';
                 }
             }
             IosBridge.Bridge = Bridge;
@@ -4728,17 +4745,23 @@ var CdvPurchase;
             constructor(purchase, parentReceipt, decorator) {
                 super(CdvPurchase.Platform.GOOGLE_PLAY, parentReceipt, decorator);
                 this.nativePurchase = purchase;
-                this.refresh(purchase);
+                this.refresh(purchase, true);
             }
-            static toState(state, isAcknowledged) {
+            static toState(fromConstructor, state, isAcknowledged, isConsumed) {
                 switch (state) {
                     case GooglePlay.Bridge.PurchaseState.PENDING:
                         return CdvPurchase.TransactionState.INITIATED;
                     case GooglePlay.Bridge.PurchaseState.PURCHASED:
-                        // if (isAcknowledged)
-                        // return TransactionState.FINISHED; (this prevents receipt validation...)
-                        // else
-                        return CdvPurchase.TransactionState.APPROVED;
+                        // Note: we still want to validate acknowledged non-consumables and subscriptions,
+                        //       so we don't return APPROVED
+                        if (isConsumed)
+                            return CdvPurchase.TransactionState.FINISHED;
+                        else if (isAcknowledged)
+                            return CdvPurchase.TransactionState.APPROVED;
+                        else if (fromConstructor)
+                            return CdvPurchase.TransactionState.INITIATED;
+                        else
+                            return CdvPurchase.TransactionState.APPROVED;
                     case GooglePlay.Bridge.PurchaseState.UNSPECIFIED_STATE:
                         return CdvPurchase.TransactionState.UNKNOWN_STATE;
                 }
@@ -4746,7 +4769,8 @@ var CdvPurchase;
             /**
              * Refresh the value in the transaction based on the native purchase update
              */
-            refresh(purchase) {
+            refresh(purchase, fromConstructor) {
+                var _a, _b;
                 this.nativePurchase = purchase;
                 this.transactionId = `${purchase.orderId || purchase.purchaseToken}`;
                 this.purchaseId = `${purchase.purchaseToken}`;
@@ -4756,9 +4780,11 @@ var CdvPurchase;
                 this.isPending = (purchase.getPurchaseState === GooglePlay.Bridge.PurchaseState.PENDING);
                 if (typeof purchase.acknowledged !== 'undefined')
                     this.isAcknowledged = purchase.acknowledged;
+                if (typeof purchase.consumed !== 'undefined')
+                    this.isConsumed = purchase.consumed;
                 if (typeof purchase.autoRenewing !== 'undefined')
                     this.renewalIntent = purchase.autoRenewing ? CdvPurchase.RenewalIntent.RENEW : CdvPurchase.RenewalIntent.LAPSE;
-                this.state = Transaction.toState(purchase.getPurchaseState, purchase.acknowledged);
+                this.state = Transaction.toState(fromConstructor !== null && fromConstructor !== void 0 ? fromConstructor : false, purchase.getPurchaseState, (_a = this.isAcknowledged) !== null && _a !== void 0 ? _a : false, (_b = this.isConsumed) !== null && _b !== void 0 ? _b : false);
             }
         }
         GooglePlay.Transaction = Transaction;
@@ -4808,7 +4834,7 @@ var CdvPurchase;
             get receipts() { return this._receipts; }
             /** Returns true on Android, the only platform supported by this adapter */
             get isSupported() {
-                return window.cordova.platformId === 'android';
+                return CdvPurchase.Utils.platformId() === 'android';
             }
             initialize() {
                 return __awaiter(this, void 0, void 0, function* () {
@@ -4932,6 +4958,7 @@ var CdvPurchase;
             onPurchaseConsumed(purchase) {
                 this.log.debug("onPurchaseConsumed: " + purchase.orderId);
                 purchase.acknowledged = true; // consumed is the equivalent of acknowledged for consumables
+                purchase.consumed = true;
                 this.onPurchasesUpdated([purchase]);
             }
             /** Called when the platform reports update for some purchases */
@@ -4948,6 +4975,13 @@ var CdvPurchase;
                         const newReceipt = new Receipt(purchase, this.context.apiDecorators);
                         this.receipts.push(newReceipt);
                         this.context.listener.receiptsUpdated(CdvPurchase.Platform.GOOGLE_PLAY, [newReceipt]);
+                        if (newReceipt.transactions[0].state === CdvPurchase.TransactionState.INITIATED && !newReceipt.transactions[0].isPending) {
+                            // For compatibility, we set the state of "new" purchases to initiated from the constructor,
+                            // they'll got to "approved" when refreshed.
+                            // this way, users receive the "initiated" event, then "approved"
+                            newReceipt.refreshPurchase(purchase);
+                            this.context.listener.receiptsUpdated(CdvPurchase.Platform.GOOGLE_PLAY, [newReceipt]);
+                        }
                     }
                 });
             }
@@ -5168,9 +5202,13 @@ var CdvPurchase;
 (function (CdvPurchase) {
     let GooglePlay;
     (function (GooglePlay) {
-        /** Replace SKU ProrationMode.
+        /**
+         * Replace SKU ProrationMode.
          *
-         * See https://developer.android.com/reference/com/android/billingclient/api/BillingFlowParams.ProrationMode */
+         * See https://developer.android.com/reference/com/android/billingclient/api/BillingFlowParams.ProrationMode
+         *
+         * @deprecated Use {@link ReplacementMode}
+         */
         let ProrationMode;
         (function (ProrationMode) {
             /** Replacement takes effect immediately, and the remaining time will be prorated and credited to the user. */
@@ -5184,6 +5222,24 @@ var CdvPurchase;
             /** Replacement takes effect immediately, and the user is charged full price of new plan and is given a full billing cycle of subscription, plus remaining prorated time from the old plan. */
             ProrationMode["IMMEDIATE_AND_CHARGE_FULL_PRICE"] = "IMMEDIATE_AND_CHARGE_FULL_PRICE";
         })(ProrationMode = GooglePlay.ProrationMode || (GooglePlay.ProrationMode = {}));
+        /**
+         * Supported replacement modes to replace an existing subscription with a new one.
+         *
+         * @see {@link https://developer.android.com/google/play/billing/subscriptions#replacement-modes}
+         */
+        let ReplacementMode;
+        (function (ReplacementMode) {
+            /** Replacement takes effect immediately, and the remaining time will be prorated and credited to the user. */
+            ReplacementMode["WITH_TIME_PRORATION"] = "IMMEDIATE_WITH_TIME_PRORATION";
+            /** Replacement takes effect immediately, and the billing cycle remains the same. */
+            ReplacementMode["CHARGE_PRORATED_PRICE"] = "IMMEDIATE_AND_CHARGE_PRORATED_PRICE";
+            /** Replacement takes effect immediately, and the new price will be charged on next recurrence time. */
+            ReplacementMode["WITHOUT_PRORATION"] = "IMMEDIATE_WITHOUT_PRORATION";
+            /** Replacement takes effect when the old plan expires, and the new price will be charged at the same time. */
+            ReplacementMode["DEFERRED"] = "DEFERRED";
+            /** Replacement takes effect immediately, and the user is charged full price of new plan and is given a full billing cycle of subscription, plus remaining prorated time from the old plan. */
+            ReplacementMode["CHARGE_FULL_PRICE"] = "IMMEDIATE_AND_CHARGE_FULL_PRICE";
+        })(ReplacementMode = GooglePlay.ReplacementMode || (GooglePlay.ReplacementMode = {}));
         let Bridge;
         (function (Bridge_2) {
             let log = function log(msg) {
@@ -6693,6 +6749,22 @@ var CdvPurchase;
 (function (CdvPurchase) {
     let Utils;
     (function (Utils) {
+        /** Returns an UUID v4. Uses `window.crypto` internally to generate random values. */
+        function platformId() {
+            var _a, _b, _c;
+            if ((_a = window.cordova) === null || _a === void 0 ? void 0 : _a.platformId)
+                return (_b = window.cordova) === null || _b === void 0 ? void 0 : _b.platformId;
+            if ((_c = window.Capacitor) === null || _c === void 0 ? void 0 : _c.getPlatform)
+                return window.Capacitor.getPlatform();
+            return 'web';
+        }
+        Utils.platformId = platformId;
+    })(Utils = CdvPurchase.Utils || (CdvPurchase.Utils = {}));
+})(CdvPurchase || (CdvPurchase = {}));
+var CdvPurchase;
+(function (CdvPurchase) {
+    let Utils;
+    (function (Utils) {
         /**
          * Return a safer version of a callback that runs inside a try/catch block.
          *
@@ -6700,9 +6772,9 @@ var CdvPurchase;
          * @param className - Type of callback, helps debugging when a function failed.
          * @param callback - The callback function is turn into a safer version.
          */
-        function safeCallback(logger, className, callback) {
+        function safeCallback(logger, className, callback, callbackName, reason) {
             return function (value) {
-                safeCall(logger, className, callback, value);
+                safeCall(logger, className, callback, value, callbackName, reason);
             };
         }
         Utils.safeCallback = safeCallback;
@@ -6714,15 +6786,20 @@ var CdvPurchase;
          * @param callback - The callback function is turn into a safer version.
          * @param value - Value passed to the callback.
          */
-        function safeCall(logger, className, callback, value) {
-            const callbackName = callback.name || ('#' + Utils.md5(callback.toString()));
+        function safeCall(logger, className, callback, value, callbackName, reason) {
+            if (!callback) {
+                return; // cannot call an undefined callback.
+            }
+            if (!callbackName) {
+                callbackName = callback.name || ('#' + Utils.md5(callback.toString()));
+            }
             setTimeout(() => {
                 try {
-                    logger.debug(`Calling callback: type=${className} name=${callbackName}`);
+                    logger.debug(`Calling callback: type=${className} name=${callbackName} reason=${reason}`);
                     callback(value);
                 }
                 catch (error) {
-                    logger.error(`Error in callback: type=${className} name=${callbackName}`);
+                    logger.error(`Error in callback: type=${className} name=${callbackName} reason=${reason}`);
                     logger.debug(callback.toString());
                     const errorAsError = error;
                     if ('message' in errorAsError)
@@ -6882,6 +6959,7 @@ var CdvPurchase;
             this.latestReceipt = response.latest_receipt;
             this.nativeTransactions = [response.transaction];
             this.warning = response.warning;
+            this.validationDate = response.date ? new Date(response.date) : new Date();
             Object.defineProperty(this, 'raw', { 'enumerable': false, get() { return response; } });
             Object.defineProperty(this, 'finish', { 'enumerable': false, get() { return () => decorator.finish(this); } });
         }

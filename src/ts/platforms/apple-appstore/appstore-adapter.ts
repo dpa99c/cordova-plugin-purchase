@@ -156,7 +156,7 @@ namespace CdvPurchase {
 
             /** Returns true on iOS, the only platform supported by this adapter */
             get isSupported(): boolean {
-                return window.cordova.platformId === 'ios';
+                return Utils.platformId() === 'ios';
             }
 
             private upsertTransactionInProgress(productId: string, state: TransactionState): Promise<SKTransaction> {
@@ -185,7 +185,7 @@ namespace CdvPurchase {
                 this.pseudoReceipt.transactions = this.pseudoReceipt.transactions.filter(t => t.transactionId !== transactionId);
             }
 
-            /** Insert or update a transaction in the pseudo receipt */
+            /** Insert or update a transaction in the pseudo receipt, based on data collected from the native side */
             private async upsertTransaction(productId: string, transactionId: string, state: TransactionState): Promise<SKTransaction> {
                 return new Promise(resolve => {
                     this.initializeAppReceipt(() => {

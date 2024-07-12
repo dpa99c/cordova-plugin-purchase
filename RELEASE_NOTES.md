@@ -1,8 +1,76 @@
 # Release Notes - Cordova Plugin Purchase
 
-## 13.9
+## 13.11
 
-### 13.9.0
+### 13.11.1
+
+#### Fix running from browser with Capacitor
+
+Add `Utils.platformId()` helper function to get rid of an error when running a Capacitor app in a browser.
+
+Ref issue #1566
+
+### 13.11.0
+
+#### Upgrade to Google Play Billing library 7.0.0
+
+It's a backward compatible update, main visible change is the ProrationMode being renamed ReplacementMode (but the plugin kept the old enum and fields for compatibility).
+
+## 13.10
+
+### 13.10.4
+
+#### Fix build issue on android
+
+Java compiler started complaining about an implicit parameter. This patch fixes it.
+
+Ref issue #1564
+
+### 13.10.3
+
+#### Fix issue when a callback is null or undefined
+
+Ref issue #1557
+
+### 13.10.2
+
+#### Add `validationDate` to verified receipts
+
+`validationDate` can be set server side (the validation request response), to provide a more reliable clock time than the device's when needed.
+
+### 13.10.1
+
+#### Fix store.initialize() when passed a single value
+
+`store.initialize()` was supposed to work when passed a single value instead of an array. It turns out there was a regression, fixed with this release.
+
+#### Add store.when().initiated(transaction)
+
+Allows monitoring `INITIATED` (new) transactions.
+
+```ts
+store.when().initiated(transaction => {
+  // a new transaction has been initiated.
+});
+```
+
+### 13.10.0
+
+#### (googleplay) Add "isConsumed" to consumed transactions
+
+Local Google Play transaction now contain `isConsumed`, which is the same as `isAcknowledged`, but only set for consumable products.
+
+#### Make it easier to debug callback calls
+
+It's now possible to add a name to callbacks registered with "store.when()"
+
+When callbacks are triggered, the reason is logged to the console.
+
+#### Prevent instanciating CdvPurchase.store twice
+
+So when ionic packages the plugin with the app code, no double instantiations of the plugin is performed.
+
+## 13.9.0
 
 #### (appstore) store.restorePurchases() return potential errors
 

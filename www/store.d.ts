@@ -189,12 +189,12 @@ declare namespace CdvPurchase {
          */
         debug(o: any): void;
         /**
-         * Add warning logs on a console describing an exceptions.
+         * Add warning logs on a console describing an exception.
          *
          * This method is mostly used when executing user registered callbacks.
          *
          * @param context - a string describing why the method was called
-         * @param error - a javascript Error object thrown by a exception
+         * @param error - a javascript Error object thrown by an exception
          */
         logCallbackException(context: string, err: Error | string): void;
         /**
@@ -204,8 +204,8 @@ declare namespace CdvPurchase {
          *
          * @example
          * Logger.console = {
-         *   log: (message) => { remoteLog('LOG', message); }
-         *   warn: (message) => { remoteLog('WARN', message); }
+         *   log: (message) => { remoteLog('LOG', message); },
+         *   warn: (message) => { remoteLog('WARN', message); },
          *   error: (message) => { remoteLog('ERROR', message); }
          * }
          */
@@ -467,6 +467,7 @@ declare namespace CdvPurchase {
 declare namespace CdvPurchase {
     namespace Internal {
         interface StoreAdapterDelegate {
+            initiatedCallbacks: Callbacks<Transaction>;
             approvedCallbacks: Callbacks<Transaction>;
             pendingCallbacks: Callbacks<Transaction>;
             finishedCallbacks: Callbacks<Transaction>;
@@ -538,7 +539,10 @@ declare namespace CdvPurchase {
             /** Log to the console */
             logger: Logger;
             /** List of registered callbacks */
-            callbacks: Callback<T>[];
+            callbacks: {
+                callback: Callback<T>;
+                callbackName?: string;
+            }[];
             /** If true, newly registered callbacks will be called immediately when the event was already triggered.
              *
              * Those callbacks are used to ensure the plugin has reached a given state. */
@@ -553,9 +557,9 @@ declare namespace CdvPurchase {
              */
             constructor(logger: Logger, className: string, finalStateMode?: boolean);
             /** Add a callback to the list */
-            push(callback: Callback<T>): void;
+            push(callback: Callback<T>, callbackName?: string): void;
             /** Call all registered callbacks with the given value */
-            trigger(value: T): void;
+            trigger(value: T, reason: string): void;
             /** Remove a callback from the list */
             remove(callback: Callback<T>): void;
         }
@@ -578,7 +582,7 @@ declare namespace CdvPurchase {
             /** Register a callback to be called when the plugin is ready. */
             add(cb: Callback<void>): unknown;
             /** Calls the ready callbacks */
-            trigger(): void;
+            trigger(reason: string): void;
             remove(cb: Callback<void>): void;
         }
     }
@@ -674,11 +678,6 @@ declare namespace CdvPurchase {
         }
     }
 }
-/**
- * The platform doesn't send notifications when a subscription expires.
- *
- * However this is useful, so let's do just that.
- */
 declare namespace CdvPurchase {
     namespace Internal {
         /** Data and callbacks to interface with the ExpiryMonitor */
@@ -687,6 +686,13 @@ declare namespace CdvPurchase {
             /** Called when a verified purchase expires */
             onVerifiedPurchaseExpired(verifiedPurchase: VerifiedPurchase, receipt: VerifiedReceipt): void;
         }
+        /**
+         * Send a notification when a subscription expires.
+         *
+         * The platform doesn't send notifications when a subscription expires.
+         *
+         * However this is useful, so let's do just that.
+         */
         class ExpiryMonitor {
             /** Time between checks for newly expired subscriptions */
             static INTERVAL_MS: number;
@@ -737,7 +743,7 @@ declare namespace CdvPurchase {
     /**
      * Current release number of the plugin.
      */
-    const PLUGIN_VERSION = "13.9.0";
+    const PLUGIN_VERSION = "13.11.1";
     /**
      * Entry class of the plugin.
      */
@@ -832,6 +838,8 @@ declare namespace CdvPurchase {
         /** Callback when a receipt was updated */
         private updatedReceiptsCallbacks;
         /** Callbacks when a product is owned */
+        /** Callbacks when a transaction is initiated */
+        private initiatedCallbacks;
         /** Callbacks when a transaction has been approved */
         private approvedCallbacks;
         /** Callbacks when a transaction has been finished */
@@ -931,7 +939,7 @@ declare namespace CdvPurchase {
          *     monitor.stop();
          * });
          */
-        monitor(transaction: Transaction, onChange: Callback<TransactionState>): TransactionMonitor;
+        monitor(transaction: Transaction, onChange: Callback<TransactionState>, callbackName: string): TransactionMonitor;
         /**
          * List of all active products.
          *
@@ -1082,6 +1090,7 @@ declare namespace CdvPurchase {
      */
     namespace Internal { }
 }
+/** @private */
 declare function initCDVPurchase(): void;
 declare namespace CdvPurchase {
     /** Callback */
@@ -1289,7 +1298,13 @@ declare namespace CdvPurchase {
      * @see {@link Store.checkSupport}
      */
     type PlatformFunctionality = 'requestPayment' | 'order' | 'manageSubscriptions' | 'manageBilling';
-    /** Possible states of a product */
+    /**
+     * Possible states of a transaction.
+     *
+     * ```
+     * INITIATED → PENDING (optional) → APPROVED → FINISHED
+     * ```
+     */
     enum TransactionState {
         INITIATED = "initiated",
         PENDING = "pending",
@@ -1306,21 +1321,23 @@ declare namespace CdvPurchase {
          *
          * @deprecated - Use `productUpdated` or `receiptUpdated`.
          */
-        updated(cb: Callback<Product | Receipt>): When;
+        updated(cb: Callback<Product | Receipt>, callbackName?: string): When;
         /** Register a function called when a receipt is updated. */
-        receiptUpdated(cb: Callback<Receipt>): When;
+        receiptUpdated(cb: Callback<Receipt>, callbackName?: string): When;
         /** Register a function called when a product is updated. */
-        productUpdated(cb: Callback<Product>): When;
-        /** Register a function called when transaction is approved. */
-        approved(cb: Callback<Transaction>): When;
-        /** Register a function called when transaction is pending. */
-        pending(cb: Callback<Transaction>): When;
+        productUpdated(cb: Callback<Product>, callbackName?: string): When;
+        /** Register a function called when a transaction is initiated. */
+        initiated(cb: Callback<Transaction>, callbackName?: string): When;
+        /** Register a function called when a transaction is approved. */
+        approved(cb: Callback<Transaction>, callbackName?: string): When;
+        /** Register a function called when a transaction is pending. */
+        pending(cb: Callback<Transaction>, callbackName?: string): When;
         /** Register a function called when a transaction is finished. */
-        finished(cb: Callback<Transaction>): When;
+        finished(cb: Callback<Transaction>, callbackName?: string): When;
         /** Register a function called when a receipt is verified. */
-        verified(cb: Callback<VerifiedReceipt>): When;
+        verified(cb: Callback<VerifiedReceipt>, callbackName?: string): When;
         /** Register a function called when a receipt failed validation. */
-        unverified(cb: Callback<UnverifiedReceipt>): When;
+        unverified(cb: Callback<UnverifiedReceipt>, callbackName?: string): When;
         /**
          * Register a function called when all receipts have been loaded.
          *
@@ -1331,13 +1348,13 @@ declare namespace CdvPurchase {
          *
          * If no platforms have any receipts (the user made no purchase), this will also get called.
          */
-        receiptsReady(cb: Callback<void>): When;
+        receiptsReady(cb: Callback<void>, callbackName?: string): When;
         /**
          * Register a function called when all receipts have been verified.
          *
          * If no platforms have any receipts (user made no purchase), this will also get called.
          */
-        receiptsVerified(cb: Callback<void>): When;
+        receiptsVerified(cb: Callback<void>, callbackName?: string): When;
     }
     /** Whether or not the user intends to let the subscription auto-renew. */
     enum RenewalIntent {
@@ -2433,7 +2450,7 @@ declare namespace CdvPurchase {
             private upsertTransactionInProgress;
             /** Remove a transaction from the pseudo receipt */
             private removeTransactionInProgress;
-            /** Insert or update a transaction in the pseudo receipt */
+            /** Insert or update a transaction in the pseudo receipt, based on data collected from the native side */
             private upsertTransaction;
             private removeTransaction;
             /** Debounced version of _receiptUpdated */
@@ -4132,11 +4149,11 @@ declare namespace CdvPurchase {
         class Transaction extends CdvPurchase.Transaction {
             nativePurchase: Bridge.Purchase;
             constructor(purchase: Bridge.Purchase, parentReceipt: Receipt, decorator: Internal.TransactionDecorator);
-            static toState(state: Bridge.PurchaseState, isAcknowledged: boolean): TransactionState;
+            static toState(fromConstructor: boolean, state: Bridge.PurchaseState, isAcknowledged: boolean, isConsumed: boolean): TransactionState;
             /**
              * Refresh the value in the transaction based on the native purchase update
              */
-            refresh(purchase: Bridge.Purchase): void;
+            refresh(purchase: Bridge.Purchase, fromConstructor?: boolean): void;
         }
         class Receipt extends CdvPurchase.Receipt {
             /** Token that uniquely identifies a purchase for a given item and user pair. */
@@ -4275,9 +4292,13 @@ declare namespace CdvPurchase {
 }
 declare namespace CdvPurchase {
     namespace GooglePlay {
-        /** Replace SKU ProrationMode.
+        /**
+         * Replace SKU ProrationMode.
          *
-         * See https://developer.android.com/reference/com/android/billingclient/api/BillingFlowParams.ProrationMode */
+         * See https://developer.android.com/reference/com/android/billingclient/api/BillingFlowParams.ProrationMode
+         *
+         * @deprecated Use {@link ReplacementMode}
+         */
         enum ProrationMode {
             /** Replacement takes effect immediately, and the remaining time will be prorated and credited to the user. */
             IMMEDIATE_WITH_TIME_PRORATION = "IMMEDIATE_WITH_TIME_PRORATION",
@@ -4289,6 +4310,23 @@ declare namespace CdvPurchase {
             DEFERRED = "DEFERRED",
             /** Replacement takes effect immediately, and the user is charged full price of new plan and is given a full billing cycle of subscription, plus remaining prorated time from the old plan. */
             IMMEDIATE_AND_CHARGE_FULL_PRICE = "IMMEDIATE_AND_CHARGE_FULL_PRICE"
+        }
+        /**
+         * Supported replacement modes to replace an existing subscription with a new one.
+         *
+         * @see {@link https://developer.android.com/google/play/billing/subscriptions#replacement-modes}
+         */
+        enum ReplacementMode {
+            /** Replacement takes effect immediately, and the remaining time will be prorated and credited to the user. */
+            WITH_TIME_PRORATION = "IMMEDIATE_WITH_TIME_PRORATION",
+            /** Replacement takes effect immediately, and the billing cycle remains the same. */
+            CHARGE_PRORATED_PRICE = "IMMEDIATE_AND_CHARGE_PRORATED_PRICE",
+            /** Replacement takes effect immediately, and the new price will be charged on next recurrence time. */
+            WITHOUT_PRORATION = "IMMEDIATE_WITHOUT_PRORATION",
+            /** Replacement takes effect when the old plan expires, and the new price will be charged at the same time. */
+            DEFERRED = "DEFERRED",
+            /** Replacement takes effect immediately, and the user is charged full price of new plan and is given a full billing cycle of subscription, plus remaining prorated time from the old plan. */
+            CHARGE_FULL_PRICE = "IMMEDIATE_AND_CHARGE_FULL_PRICE"
         }
         interface AdditionalData {
             /** The GooglePlay offer token */
@@ -4309,8 +4347,14 @@ declare namespace CdvPurchase {
              * Use this method to send the user's profile identifier to Google.
              */
             profileId?: string;
-            /** See https://github.com/j3k0/cordova-plugin-purchase/blob/master/doc/api.md#storeorderproduct-additionaldata for details */
+            /**
+             * Same as replacementMode, for backward compatibility
+             *
+             * @deprecated Use {@link replacementMode} instead
+             */
             prorationMode?: ProrationMode;
+            /** See https://github.com/j3k0/cordova-plugin-purchase/blob/master/doc/api.md#storeorderproduct-additionaldata for details */
+            replacementMode?: ReplacementMode;
         }
         namespace Bridge {
             interface Options {
@@ -4349,6 +4393,8 @@ declare namespace CdvPurchase {
                 quantity: number;
                 /** Whether the purchase has been acknowledged. */
                 acknowledged: boolean;
+                /** Whether the purchase has been consumed */
+                consumed?: boolean;
                 /** One of BridgePurchaseState indicating the state of the purchase. */
                 getPurchaseState: PurchaseState;
                 /** Whether the subscription renews automatically. */
@@ -5339,6 +5385,13 @@ declare namespace CdvPurchase {
 }
 declare namespace CdvPurchase {
     namespace Utils {
+        type PlatformID = 'ios' | 'android' | 'web';
+        /** Returns an UUID v4. Uses `window.crypto` internally to generate random values. */
+        function platformId(): PlatformID;
+    }
+}
+declare namespace CdvPurchase {
+    namespace Utils {
         /**
          * Return a safer version of a callback that runs inside a try/catch block.
          *
@@ -5346,7 +5399,7 @@ declare namespace CdvPurchase {
          * @param className - Type of callback, helps debugging when a function failed.
          * @param callback - The callback function is turn into a safer version.
          */
-        function safeCallback<T>(logger: Logger, className: string, callback: Callback<T>): Callback<T>;
+        function safeCallback<T>(logger: Logger, className: string, callback: Callback<T>, callbackName: string | undefined, reason: string): Callback<T>;
         /**
          * Run a callback inside a try/catch block.
          *
@@ -5355,7 +5408,7 @@ declare namespace CdvPurchase {
          * @param callback - The callback function is turn into a safer version.
          * @param value - Value passed to the callback.
          */
-        function safeCall<T>(logger: Logger, className: string, callback: Callback<T>, value: T): void;
+        function safeCall<T>(logger: Logger, className: string, callback: Callback<T>, value: T, callbackName: string | undefined, reason: string): void;
     }
 }
 declare namespace CdvPurchase {
@@ -5631,6 +5684,11 @@ declare namespace CdvPurchase {
                      *
                      * It might be present when the server had to fallback to a backup validation solution. */
                     warning?: string;
+                    /** Date and time the receipt was validated.
+                     *
+                     * It will provide the client with a more reliable clock time
+                     * than the user's device when needed. */
+                    date?: ISODate;
                 };
             }
             type NativeTransaction = ({
@@ -5708,6 +5766,8 @@ declare namespace CdvPurchase {
     class VerifiedReceipt {
         /** @internal */
         className: 'VerifiedReceipt';
+        /** Date and time the receipt was verified */
+        validationDate: Date;
         /** Platform this receipt originated from */
         get platform(): Platform;
         /** Source local receipt used for this validation */

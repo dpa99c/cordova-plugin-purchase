@@ -3,6 +3,7 @@ namespace CdvPurchase
     export namespace Internal {
 
         export interface StoreAdapterDelegate {
+            initiatedCallbacks: Callbacks<Transaction>;
             approvedCallbacks: Callbacks<Transaction>;
             pendingCallbacks: Callbacks<Transaction>;
             finishedCallbacks: Callbacks<Transaction>;
@@ -51,7 +52,7 @@ namespace CdvPurchase
                 this.supportedPlatforms = platforms;
                 if (this.supportedPlatforms.length === this.platformWithReceiptsReady.length) {
                     this.log.debug('triggering receiptsReady()');
-                    this.delegate.receiptsReadyCallbacks.trigger();
+                    this.delegate.receiptsReadyCallbacks.trigger(undefined, 'adapterListener_setSupportedPlatforms');
                 }
             }
 
@@ -73,7 +74,7 @@ namespace CdvPurchase
                     this.log.debug(`receiptsReady: ${platform} (${this.platformWithReceiptsReady.length}/${this.supportedPlatforms.length})`);
                     if (this.platformWithReceiptsReady.length === this.supportedPlatforms.length) {
                         this.log.debug('triggering receiptsReady()');
-                        this.delegate.receiptsReadyCallbacks.trigger();
+                        this.delegate.receiptsReadyCallbacks.trigger(undefined, 'adapterListener_receiptsReady');
                     }
                 }
             }
@@ -82,7 +83,7 @@ namespace CdvPurchase
              * Trigger the "updated" event for each product.
              */
             productsUpdated(platform: Platform, products: Product[]): void {
-                products.forEach(product => this.delegate.updatedCallbacks.trigger(product));
+                products.forEach(product => this.delegate.updatedCallbacks.trigger(product, 'adapterListener_productsUpdated'));
             }
 
             /**
@@ -96,27 +97,32 @@ namespace CdvPurchase
              */
             receiptsUpdated(platform: Platform, receipts: Receipt[]): void {
                 const now = +new Date();
+                this.log.debug("receiptsUpdated: " + JSON.stringify(receipts));
                 receipts.forEach(receipt => {
-                    this.delegate.updatedReceiptCallbacks.trigger(receipt);
+                    this.delegate.updatedReceiptCallbacks.trigger(receipt, 'adapterListener_receiptsUpdated');
                     receipt.transactions.forEach(transaction => {
                         const transactionToken = StoreAdapterListener.makeTransactionToken(transaction);
                         const tokenWithState = transactionToken + '@' + transaction.state;
                         const lastState = this.lastTransactionState[transactionToken];
                         // Retrigger "approved", so validation is rerun on potential update.
                         if (transaction.state === TransactionState.APPROVED) {
-                            // prevent calling approved twice in a very short period (5 seconds).
-                            if ((this.lastCallTimeForState[tokenWithState] | 0) < now - 5000) {
-                                this.delegate.approvedCallbacks.trigger(transaction);
+                            // prevent calling approved twice in a very short period (60 seconds).
+                            if ((this.lastCallTimeForState[tokenWithState] | 0) < now - 60000) {
+                                this.delegate.approvedCallbacks.trigger(transaction, 'adapterListener_receiptsUpdated_approved');
                                 this.lastCallTimeForState[tokenWithState] = now;
                             }
                         }
                         else if (lastState !== transaction.state) {
-                            if (transaction.state === TransactionState.FINISHED) {
-                                this.delegate.finishedCallbacks.trigger(transaction);
+                            if (transaction.state === TransactionState.INITIATED) {
+                                this.delegate.initiatedCallbacks.trigger(transaction, 'adapterListener_receiptsUpdated_initiated');
+                                this.lastCallTimeForState[tokenWithState] = now;
+                            }
+                            else if (transaction.state === TransactionState.FINISHED) {
+                                this.delegate.finishedCallbacks.trigger(transaction, 'adapterListener_receiptsUpdated_finished');
                                 this.lastCallTimeForState[tokenWithState] = now;
                             }
                             else if (transaction.state === TransactionState.PENDING) {
-                                this.delegate.pendingCallbacks.trigger(transaction);
+                                this.delegate.pendingCallbacks.trigger(transaction, 'adapterListener_receiptsUpdated_pending');
                                 this.lastCallTimeForState[tokenWithState] = now;
                             }
                         }

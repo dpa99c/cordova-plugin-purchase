@@ -12,18 +12,24 @@ namespace CdvPurchase {
             constructor(purchase: Bridge.Purchase, parentReceipt: Receipt, decorator: Internal.TransactionDecorator) {
                 super(Platform.GOOGLE_PLAY, parentReceipt, decorator);
                 this.nativePurchase = purchase;
-                this.refresh(purchase);
+                this.refresh(purchase, true);
             }
 
-            static toState(state: Bridge.PurchaseState, isAcknowledged: boolean): TransactionState {
+            static toState(fromConstructor: boolean, state: Bridge.PurchaseState, isAcknowledged: boolean, isConsumed: boolean): TransactionState {
                 switch(state) {
                     case Bridge.PurchaseState.PENDING:
                         return TransactionState.INITIATED;
                     case Bridge.PurchaseState.PURCHASED:
-                        // if (isAcknowledged)
-                        // return TransactionState.FINISHED; (this prevents receipt validation...)
-                        // else
-                        return TransactionState.APPROVED;
+                        // Note: we still want to validate acknowledged non-consumables and subscriptions,
+                        //       so we don't return APPROVED
+                        if (isConsumed)
+                            return TransactionState.FINISHED;
+                        else if (isAcknowledged)
+                            return TransactionState.APPROVED;
+                        else if (fromConstructor)
+                            return TransactionState.INITIATED;
+                        else
+                            return TransactionState.APPROVED;
                     case Bridge.PurchaseState.UNSPECIFIED_STATE:
                         return TransactionState.UNKNOWN_STATE;
                 }
@@ -32,16 +38,17 @@ namespace CdvPurchase {
             /**
              * Refresh the value in the transaction based on the native purchase update
              */
-            refresh(purchase: Bridge.Purchase) {
+            refresh(purchase: Bridge.Purchase, fromConstructor?: boolean) {
                 this.nativePurchase = purchase;
                 this.transactionId = `${purchase.orderId || purchase.purchaseToken}`;
                 this.purchaseId = `${purchase.purchaseToken}`;
                 this.products = purchase.productIds.map(productId => ({ id: productId }));
                 if (purchase.purchaseTime) this.purchaseDate = new Date(purchase.purchaseTime);
-                this.isPending = (purchase.getPurchaseState === Bridge.PurchaseState.PENDING);
+                this.isPending = (purchase.getPurchaseState === Bridge.PurchaseState.PENDING)
                 if (typeof purchase.acknowledged !== 'undefined') this.isAcknowledged = purchase.acknowledged;
+                if (typeof purchase.consumed !== 'undefined') this.isConsumed = purchase.consumed;
                 if (typeof purchase.autoRenewing !== 'undefined') this.renewalIntent = purchase.autoRenewing ? RenewalIntent.RENEW : RenewalIntent.LAPSE;
-                this.state = Transaction.toState(purchase.getPurchaseState, purchase.acknowledged);
+                this.state = Transaction.toState(fromConstructor ?? false, purchase.getPurchaseState, this.isAcknowledged ?? false, this.isConsumed ?? false);
             }
         }
 
@@ -117,7 +124,7 @@ namespace CdvPurchase {
 
             /** Returns true on Android, the only platform supported by this adapter */
             get isSupported(): boolean {
-                return window.cordova.platformId === 'android';
+                return Utils.platformId() === 'android';
             }
 
             async initialize(): Promise<undefined | IError> {
@@ -267,6 +274,7 @@ namespace CdvPurchase {
             onPurchaseConsumed(purchase: Bridge.Purchase): void {
                 this.log.debug("onPurchaseConsumed: " + purchase.orderId);
                 purchase.acknowledged = true; // consumed is the equivalent of acknowledged for consumables
+                purchase.consumed = true;
                 this.onPurchasesUpdated([purchase]);
             }
 
@@ -284,6 +292,13 @@ namespace CdvPurchase {
                         const newReceipt = new Receipt(purchase, this.context.apiDecorators);
                         this.receipts.push(newReceipt);
                         this.context.listener.receiptsUpdated(Platform.GOOGLE_PLAY, [newReceipt]);
+                        if (newReceipt.transactions[0].state === TransactionState.INITIATED && !newReceipt.transactions[0].isPending) {
+                            // For compatibility, we set the state of "new" purchases to initiated from the constructor,
+                            // they'll got to "approved" when refreshed.
+                            // this way, users receive the "initiated" event, then "approved"
+                            newReceipt.refreshPurchase(purchase);
+                            this.context.listener.receiptsUpdated(Platform.GOOGLE_PLAY, [newReceipt]);
+                        }
                     }
                 });
             }
