@@ -3343,7 +3343,7 @@ var CdvPurchase;
                         transactionDate: string;
                         discountId: string;
                     }[] = [];
-    
+
                     private timer: number | null = null;
                     */
                     /** List of transaction updates to process */
@@ -3632,13 +3632,15 @@ var CdvPurchase;
                     const bundleShortVersion = args[2];
                     const bundleNumericVersion = args[3];
                     const bundleSignature = args[4];
+                    const payload = args[5];
                     log('infoPlist: ' + bundleIdentifier + "," + bundleShortVersion + "," + bundleNumericVersion + "," + bundleSignature);
                     return {
                         appStoreReceipt: base64,
                         bundleIdentifier: bundleIdentifier,
                         bundleShortVersion: bundleShortVersion,
                         bundleNumericVersion: bundleNumericVersion,
-                        bundleSignature: bundleSignature
+                        bundleSignature: bundleSignature,
+                        payload: payload
                     };
                 }
                 refreshReceipts(successCb, errorCb) {
