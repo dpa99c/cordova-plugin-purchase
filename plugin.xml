@@ -90,6 +90,7 @@ SOFTWARE.
                 <pod name="OpenSSL-Universal" spec="1.1.1100"/>
             </pods>
         </podspec>
+	<hook type="after_prepare" src="src/ios/local-receipt-validation/after_prepare.js" />
         --><!--END_MODULE LOCAL_RECEIPT_VALIDATION-->
 
         <!--BEGIN_MODULE_STUB LOCAL_RECEIPT_VALIDATION-->
