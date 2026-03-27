@@ -48,7 +48,7 @@ var applyPodsPostInstall = function(){
   end
 
   framework_paths = [
-    "Pods/OpenSSL-Universal/Frameworks/OpenSSL.xcframework/ios-arm64/OpenSSL.framework/OpenSSL",
+    "Pods/OpenSSL-Universal/Frameworks/OpenSSL.xcframework/ios-arm64_armv7/OpenSSL.framework/OpenSSL",
   ]
 
   framework_paths.each do |framework_relative_path|
