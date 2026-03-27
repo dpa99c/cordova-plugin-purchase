@@ -17,9 +17,7 @@
 
 #import "SKProduct+LocalizedPrice.h"
 #import "SKProductDiscount+LocalizedPrice.h"
-#import "FileUtility.h"
 #import "RMStoreAppReceiptVerifier.h"
-
 @interface InAppPurchase : CDVPlugin <SKPaymentTransactionObserver> {
     NSMutableDictionary *products;
     NSMutableDictionary *retainer;

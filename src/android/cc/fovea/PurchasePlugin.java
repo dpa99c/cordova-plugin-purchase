@@ -14,14 +14,10 @@
 
 package cc.fovea;
 
-// import com.android.billingclient.api.PriceChangeConfirmationListener;
-// import com.android.billingclient.api.PriceChangeFlowParams;
-// import com.android.billingclient.api.ProductDetails.PricingPhases;
-// import java.io.IOException;
-// import java.lang.reflect.Array;
 import android.content.Intent;
 import android.net.Uri;
 import android.util.Log;
+import android.app.Activity;
 import com.android.billingclient.api.AcknowledgePurchaseParams;
 import com.android.billingclient.api.AcknowledgePurchaseResponseListener;
 import com.android.billingclient.api.BillingClient;
@@ -39,11 +35,13 @@ import com.android.billingclient.api.ProductDetails.OneTimePurchaseOfferDetails;
 import com.android.billingclient.api.ProductDetails.PricingPhase;
 import com.android.billingclient.api.ProductDetails.SubscriptionOfferDetails;
 import com.android.billingclient.api.ProductDetailsResponseListener;
+import com.android.billingclient.api.QueryProductDetailsResult;
 import com.android.billingclient.api.Purchase;
 import com.android.billingclient.api.PurchasesResponseListener;
 import com.android.billingclient.api.PurchasesUpdatedListener;
 import com.android.billingclient.api.QueryProductDetailsParams;
 import com.android.billingclient.api.QueryProductDetailsParams.Product;
+import com.android.billingclient.api.PendingPurchasesParams;
 import com.android.billingclient.api.QueryPurchasesParams;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -71,6 +69,15 @@ public final class PurchasePlugin
 
   /** Tag used for log messages. */
   private final String mTag = "CdvPurchase";
+
+  /**
+   * Internal callback interface for product details queries.
+   * This allows us to use List<ProductDetails> internally while adapting to
+   * the Billing Library 8.x QueryProductDetailsResult API.
+   */
+  private interface InternalProductDetailsResponseListener {
+    void onProductDetailsResponse(BillingResult result, List<ProductDetails> productDetailsList);
+  }
 
   /**
    * Context for the last plugin call.
@@ -299,7 +306,12 @@ public final class PurchasePlugin
 
     mBillingClient = BillingClient
       .newBuilder(cordova.getActivity())
-      .enablePendingPurchases()
+      .enablePendingPurchases(
+          PendingPurchasesParams.newBuilder()
+              .enableOneTimeProducts()
+              .enablePrepaidPlans()
+              .build())
+      .enableAutoServiceReconnection()
       .setListener(this)
       .build();
 
@@ -367,7 +379,8 @@ public final class PurchasePlugin
       .put("accountId", p.getAccountIdentifiers().getObfuscatedAccountId())
       .put("profileId", p.getAccountIdentifiers().getObfuscatedProfileId())
       .put("signature", p.getSignature())
-      .put("receipt", p.getOriginalJson().toString());
+      .put("receipt", p.getOriginalJson().toString())
+      .put("quantity", p.getQuantity());
   }
 
   BillingResult mInAppResult;
@@ -480,13 +493,34 @@ public final class PurchasePlugin
       .put("name", product.getName())
       .put("description", product.getDescription());
     if (product.getProductType().equals(ProductType.INAPP)) {
-      final OneTimePurchaseOfferDetails details = product.getOneTimePurchaseOfferDetails();
-      ret
-        .put("product_type", "inapp")
-        .put("product_format", "v11.0")
-        .put("formatted_price", details.getFormattedPrice())
-        .put("price_amount_micros", details.getPriceAmountMicros())
-        .put("price_currency_code", details.getPriceCurrencyCode());
+      // Check for multiple offers (new in Billing Library 8.0.0)
+      List<OneTimePurchaseOfferDetails> offerList = product.getOneTimePurchaseOfferDetailsList();
+
+      if (offerList != null && offerList.size() > 1) {
+        // Multiple offers - use v12.0 format with offers array
+        ret.put("product_format", "v12.0")
+           .put("product_type", "inapp");
+        JSONArray offers = new JSONArray();
+        for (OneTimePurchaseOfferDetails offer : offerList) {
+          JSONObject offerJson = new JSONObject()
+            .put("offer_id", offer.getOfferId())
+            .put("offer_token", offer.getOfferToken())
+            .put("formatted_price", offer.getFormattedPrice())
+            .put("price_amount_micros", offer.getPriceAmountMicros())
+            .put("price_currency_code", offer.getPriceCurrencyCode());
+          offers.put(offerJson);
+        }
+        ret.put("offers", offers);
+      } else {
+        // Single offer - use legacy v11.0 format (current behavior)
+        final OneTimePurchaseOfferDetails details = product.getOneTimePurchaseOfferDetails();
+        ret
+          .put("product_type", "inapp")
+          .put("product_format", "v11.0")
+          .put("formatted_price", details.getFormattedPrice())
+          .put("price_amount_micros", details.getPriceAmountMicros())
+          .put("price_currency_code", details.getPriceCurrencyCode());
+      }
     }
     else if (product.getProductType().equals(ProductType.SUBS)) {
       // Subscription are now described in v12.0 product format.
@@ -557,29 +591,30 @@ public final class PurchasePlugin
 
   private void getAvailableProducts(List<String> inAppProductIds, List<String> subsProductIds) {
     Log.d(mTag, "getAvailableProducts()");
-    queryAllProductDetails(inAppProductIds, subsProductIds, new ProductDetailsResponseListener() {
-      @Override
+    final CallbackContext callbackContext = this.mCallbackContext; // Store current context
+    queryAllProductDetails(inAppProductIds, subsProductIds, new InternalProductDetailsResponseListener() {
+        @Override
         public void onProductDetailsResponse(
             final BillingResult result,
             final List<ProductDetails> productDetailsList) {
-          if (result.getResponseCode() != BillingResponseCode.OK) {
-            Log.d(mTag, "getAvailableProducts() -> Failed: " + format(result));
-            callError(Constants.ERR_LOAD, "Failed to load Products, code: "
-                + result.getResponseCode());
-            return;
-          }
-          JSONArray jsonProductList = new JSONArray();
-          try {
-            for (ProductDetails product : productDetailsList) {
-              Log.d(mTag, "getAvailableProducts() -> productDetails: " + product.toString());
-              jsonProductList.put(productDetailsToJson(product));
+            if (result.getResponseCode() != BillingResponseCode.OK) {
+                Log.d(mTag, "getAvailableProducts() -> Failed: " + format(result));
+                callError(callbackContext, Constants.ERR_LOAD, "Failed to load Products, code: "
+                    + result.getResponseCode());
+                return;
             }
-            Log.d(mTag, "getAvailableProducts() -> Success");
-            callSuccess(jsonProductList);
-          } catch (JSONException e) {
-            Log.d(mTag, "getAvailableProducts() -> Failed: " + e.getMessage());
-            callError(Constants.ERR_LOAD, e.getMessage());
-          }
+            JSONArray jsonProductList = new JSONArray();
+            try {
+                for (ProductDetails product : productDetailsList) {
+                    Log.d(mTag, "getAvailableProducts() -> productDetails: " + product.toString());
+                    jsonProductList.put(productDetailsToJson(product));
+                }
+                Log.d(mTag, "getAvailableProducts() -> Success");
+                callSuccess(callbackContext, jsonProductList);
+            } catch (JSONException e) {
+                Log.d(mTag, "getAvailableProducts() -> Failed: " + e.getMessage());
+                callError(callbackContext, Constants.ERR_LOAD, e.getMessage());
+            }
         }
     });
   }
@@ -890,6 +925,12 @@ public final class PurchasePlugin
     if (params == null) {
       return;
     }
+    final Activity activity = cordova.getActivity();
+    if (activity == null || activity.isFinishing()) {
+        Log.e(mTag, "Activity is null or finishing, cannot launch billing flow.");
+        callError(Constants.ERR_COMMUNICATION, "Activity not available to launch billing flow.");
+        return;
+    }
     executeServiceRequest(() -> {
       if (getLastResponseCode() != BillingResponseCode.OK) {
         Log.d(mTag, "initiatePurchaseFlow() -> Failed: "
@@ -898,9 +939,19 @@ public final class PurchasePlugin
             "Failed to execute service request. " + format(getLastResult()));
         return;
       }
-      Log.d(mTag, "initiatePurchaseFlow() -> launchBillingFlow.");
+      Log.d(mTag, "Attempting to launch billing flow on UI thread.");
       cordova.setActivityResultCallback(this);
-      mBillingClient.launchBillingFlow(cordova.getActivity(), params);
+      // Ensure the actual launch call is on the UI thread
+      activity.runOnUiThread(() -> {
+        Log.d(mTag, "launchBillingFlow happening now.");
+        BillingResult billingResult = mBillingClient.launchBillingFlow(activity, params);
+        // Log the immediate result (though the main result comes via listener)
+        Log.d(mTag, "launchBillingFlow immediate result: " + format(billingResult));
+        if (billingResult.getResponseCode() != BillingResponseCode.OK) {
+           Log.e(mTag, "launchBillingFlow failed immediately with code: " + format(billingResult));
+           // Potentially callError here if appropriate, though onPurchasesUpdated usually handles final state
+        }
+      });
     });
   }
 
@@ -1091,7 +1142,7 @@ public final class PurchasePlugin
    *
    * @param listener Code to run once data has been loaded
    */
-  private void queryAllProductDetails(List<String> inAppProductIds, List<String> subsProductIds, final ProductDetailsResponseListener listener) {
+  private void queryAllProductDetails(List<String> inAppProductIds, List<String> subsProductIds, final InternalProductDetailsResponseListener listener) {
     Log.d(mTag, "queryAllProductDetails()");
     ArrayList<ProductDetails> allProducts = new ArrayList<ProductDetails>();
 
@@ -1100,8 +1151,8 @@ public final class PurchasePlugin
       + (inAppProductIds.size() > 0 ? 1 : 0);
     nProductDetailsQuerySuccessful = 0;
 
-    final ProductDetailsResponseListener queryListener =
-      new ProductDetailsResponseListener() {
+    final InternalProductDetailsResponseListener queryListener =
+      new InternalProductDetailsResponseListener() {
         @Override
         public void onProductDetailsResponse(
             final BillingResult result,
@@ -1169,7 +1220,7 @@ public final class PurchasePlugin
   public void queryProductDetailsAsync(
       // @ProductType final String itemType,
       final List<Product> productList,
-      final ProductDetailsResponseListener listener) {
+      final InternalProductDetailsResponseListener listener) {
     Log.d(mTag, "queryProductDetailsAsync()");
     executeServiceRequest(() -> {
       if (getLastResponseCode() != BillingResponseCode.OK) {
@@ -1180,7 +1231,14 @@ public final class PurchasePlugin
         Log.d(mTag, "queryProductDetailsAsync() -> Success");
         QueryProductDetailsParams.Builder params = QueryProductDetailsParams.newBuilder();
         params.setProductList(productList)/* .setType(itemType) */;
-        mBillingClient.queryProductDetailsAsync(params.build(), listener);
+        // Billing Library 8.x uses QueryProductDetailsResult instead of List<ProductDetails>
+        mBillingClient.queryProductDetailsAsync(params.build(), new ProductDetailsResponseListener() {
+          @Override
+          public void onProductDetailsResponse(BillingResult billingResult, QueryProductDetailsResult queryResult) {
+            List<ProductDetails> productDetailsList = queryResult != null ? queryResult.getProductDetailsList() : null;
+            listener.onProductDetailsResponse(billingResult, productDetailsList);
+          }
+        });
       }
     });
   }
@@ -1293,5 +1351,18 @@ public final class PurchasePlugin
       ? result.getDebugMessage()
       : codeToMessage(code);
     return codeToString(code) + ": " + message;
+  }
+
+  // Add new methods to handle callbacks with specific contexts
+  private void callSuccess(CallbackContext callbackContext, JSONArray array) {
+    if (callbackContext != null) {
+        callbackContext.success(array);
+    }
+  }
+
+  private void callError(CallbackContext callbackContext, int code, String msg) {
+    if (callbackContext != null) {
+        callbackContext.error(code + "|" + msg);
+    }
   }
 }

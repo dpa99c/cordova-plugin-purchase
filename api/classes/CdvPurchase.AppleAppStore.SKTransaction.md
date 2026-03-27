@@ -20,12 +20,14 @@ StoreKit transaction
 - [isAcknowledged](CdvPurchase.AppleAppStore.SKTransaction.md#isacknowledged)
 - [isConsumed](CdvPurchase.AppleAppStore.SKTransaction.md#isconsumed)
 - [isPending](CdvPurchase.AppleAppStore.SKTransaction.md#ispending)
+- [jwsRepresentation](CdvPurchase.AppleAppStore.SKTransaction.md#jwsrepresentation)
 - [lastRenewalDate](CdvPurchase.AppleAppStore.SKTransaction.md#lastrenewaldate)
 - [originalTransactionId](CdvPurchase.AppleAppStore.SKTransaction.md#originaltransactionid)
 - [platform](CdvPurchase.AppleAppStore.SKTransaction.md#platform)
 - [products](CdvPurchase.AppleAppStore.SKTransaction.md#products)
 - [purchaseDate](CdvPurchase.AppleAppStore.SKTransaction.md#purchasedate)
 - [purchaseId](CdvPurchase.AppleAppStore.SKTransaction.md#purchaseid)
+- [quantity](CdvPurchase.AppleAppStore.SKTransaction.md#quantity)
 - [renewalIntent](CdvPurchase.AppleAppStore.SKTransaction.md#renewalintent)
 - [renewalIntentChangeDate](CdvPurchase.AppleAppStore.SKTransaction.md#renewalintentchangedate)
 - [state](CdvPurchase.AppleAppStore.SKTransaction.md#state)
@@ -115,6 +117,14 @@ True when the transaction is still pending payment.
 
 ___
 
+### jwsRepresentation
+
+• `Optional` **jwsRepresentation**: `string`
+
+JWS representation of the transaction (StoreKit 2 only)
+
+___
+
 ### lastRenewalDate
 
 • `Optional` **lastRenewalDate**: `Date`
@@ -181,6 +191,24 @@ Identifier for the purchase this transaction is a part of.
 #### Inherited from
 
 [Transaction](CdvPurchase.Transaction.md).[purchaseId](CdvPurchase.Transaction.md#purchaseid)
+
+___
+
+### quantity
+
+• `Optional` **quantity**: `number`
+
+Quantity of items purchased in a single transaction.
+
+For consumable products, this value represents the number of items purchased.
+For non-consumable products and subscriptions, this value is always 1.
+
+This is only supported on Android (Google Play) platform when using the multi-quantity purchase feature.
+On other platforms, the quantity is always 1.
+
+#### Inherited from
+
+[Transaction](CdvPurchase.Transaction.md).[quantity](CdvPurchase.Transaction.md#quantity)
 
 ___
 
@@ -278,7 +306,7 @@ ___
 
 ### refresh
 
-▸ **refresh**(`productId?`, `originalTransactionIdentifier?`, `transactionDate?`, `discountId?`): `void`
+▸ **refresh**(`productId?`, `originalTransactionIdentifier?`, `transactionDate?`, `discountId?`, `expirationDateMs?`, `jwsRepresentation?`): `void`
 
 #### Parameters
 
@@ -288,6 +316,8 @@ ___
 | `originalTransactionIdentifier?` | `string` |
 | `transactionDate?` | `string` |
 | `discountId?` | `string` |
+| `expirationDateMs?` | `string` |
+| `jwsRepresentation?` | `string` |
 
 #### Returns
 

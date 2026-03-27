@@ -1,5 +1,85 @@
 # Release Notes - Cordova Plugin Purchase
 
+## 13.13
+
+### 13.13.1
+
+#### (ios) Remove unused FileUtility class — fixes #1657
+
+FileUtility was unused and missing `#import <Foundation/Foundation.h>`, causing build failures with cordova-ios 8 and Capacitor on Xcode 16.
+
+### 13.13.0
+
+#### (googleplay) Upgrade to Google Play Billing Library 8.3.0
+
+Major upgrade from 7.1.1 to 8.3.0. Key changes:
+
+**Breaking Changes (internal):**
+- Updated `enablePendingPurchases()` API to use `PendingPurchasesParams`
+- Requires `minSdkVersion` 23 or higher (Billing Library 8.1.0+ requirement)
+
+**New Features:**
+- Auto service reconnection for more reliable billing client connections
+- One-time product offers - INAPP products can now have multiple offers (v12.0 format)
+- Enabled pending purchases for one-time products and prepaid plans
+- Suspended subscriptions now returned in purchases list (aligns with Apple behavior)
+
+**New Bridge Types:**
+- `InAppOffer` interface for one-time product offers
+- `offers?: InAppOffer[]` on InAppProduct for v12.0 format products
+
+**Note on Suspended Subscriptions:**
+
+Previously, Google Play didn't return suspended subscriptions (paused or payment on hold) in the purchases list. Now it does, aligning with Apple's behavior. Suspended subscriptions have an `expirationDate` in the past, so `product.owned` will correctly return `false`. No code changes are needed - the existing `expirationDate` check handles this automatically.
+
+See Google Play Billing release notes for full details:
+https://developer.android.com/google/play/billing/release-notes
+
+## 13.12
+
+### 13.12.1
+
+#### (googleplay) Fix #1434 - validProducts.find is not a product
+
+Some users had this occasional error:
+
+    Error: TypeError: validProducts.find is not a function
+        at http://localhost/:9909:64
+        at Array.map (<anonymous>)
+        at iabLoaded (http://localhost/:9908:46)
+        at Object.callbackFromNative (http://localhost/:1708:52)
+        at <anonymous>:1:9
+
+This happened when another call to the native side was made before the list of products was returned (race condition kind of bug). It's fixed in that release.
+
+### 13.12.0
+
+#### (googleplay) Upgrade to Google Play Billing library 7.1.1
+
+- Improved thread safety related to connection status and management.
+- Added new testing response codes to BillingResult
+
+https://developer.android.com/google/play/billing/release-notes
+
+#### (all) Fix issue with large number of transactions
+
+In particular, when calling "restorePurchases" in Apple and the user has more than 100 transactions.
+
+- 5e2ad5b Delay processing of updated receipts
+- 71a071c Do not retrigger "approved" for a given transaction until a minute has elapsed
+
+#### (appstore) Fix issue with event handling when autoFinish is set
+
+Issue #1526, approved never fires after initiating the purchase when autoFinish was set.
+
+#### (all) Fix receipt without a transaction
+
+Issue #1526
+
+#### Minor changes
+
+Logs and documentation
+
 ## 13.11
 
 ### 13.11.1

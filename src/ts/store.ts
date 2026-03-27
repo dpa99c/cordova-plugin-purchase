@@ -21,10 +21,23 @@
  *
  * When you see, for example `ProductType.PAID_SUBSCRIPTION`, it refers to `CdvPurchase.ProductType.PAID_SUBSCRIPTION`.
  *
- * In the files that interact with the plugin, I recommend creating those shortcuts (and more if needed):
+ * In your code, you should access members directly through the CdvPurchase namespace:
  *
  * ```ts
- * const {store, ProductType, Platform, LogLevel} = CdvPurchase;
+ * // Recommended approach (works reliably with minification)
+ * CdvPurchase.store.initialize();
+ * CdvPurchase.store.register({
+ *   id: 'my-product',
+ *   type: CdvPurchase.ProductType.PAID_SUBSCRIPTION,
+ *   platform: CdvPurchase.Platform.APPLE_APPSTORE
+ * });
+ * ```
+ *
+ * Note: Using destructuring with the namespace may cause issues with minification tools:
+ *
+ * ```ts
+ * // NOT recommended - may cause issues with minification tools like Terser
+ * const { store, ProductType, Platform, LogLevel } = CdvPurchase;
  * ```
  */
 namespace CdvPurchase {
@@ -32,7 +45,7 @@ namespace CdvPurchase {
     /**
      * Current release number of the plugin.
      */
-    export const PLUGIN_VERSION = '13.11.1';
+    export const PLUGIN_VERSION = '13.13.1';
 
     /**
      * Entry class of the plugin.
@@ -80,7 +93,12 @@ namespace CdvPurchase {
          */
         public verbosity: LogLevel = LogLevel.ERROR;
 
-        /** Return the identifier of the user for your application */
+        /**
+         * Return the identifier of the user for your application.
+         *
+         * **Note:** Apple AppStore requires an UUIDv4 if you want it to appear as the "appAccountToken" in
+         * the transaction data.
+         */
         public applicationUsername?: string | (() => string | undefined);
 
         /**
@@ -218,15 +236,24 @@ namespace CdvPurchase {
                 log: this.log,
             }).launch();
             this.expiryMonitor = new Internal.ExpiryMonitor({
-                // get localReceipts() { return store.localReceipts; },
+                get localReceipts() {
+                    // Only use local receipts if there's no validator configured
+                    return store.validator ? [] : store.localReceipts;
+                },
                 get verifiedReceipts() { return store.verifiedReceipts; },
-                // onTransactionExpired(transaction) {
-                // store.approvedCallbacks.trigger(transaction);
-                // },
+                onTransactionExpired(transaction) {
+                    store.log.debug(`Local transaction expired (${transaction.transactionId}), refreshing purchases`);
+                    if (!store.validator) {
+                        const productId = transaction.products[0]?.id;
+                        if (productId && !store.owned(productId)) {
+                            store.updatedReceiptsCallbacks.trigger(transaction.parentReceipt, 'expiry_monitor_transaction_expired');
+                        }
+                    }
+                },
                 onVerifiedPurchaseExpired(verifiedPurchase, receipt) {
                     store.verify(receipt.sourceReceipt);
                 },
-            });
+            }, this.log);
             this.expiryMonitor.launch();
         }
 
@@ -247,8 +274,22 @@ namespace CdvPurchase {
          *       type: ProductType.CONSUMABLE,
          *       platform: Platform.BRAINTREE,
          *   }]);
+         *
+         * // Can also be used in development to register test products
+         * store.register([{
+         *   id: 'my-custom-product',
+         *   type: CdvPurchase.ProductType.CONSUMABLE,
+         *   platform: CdvPurchase.Platform.TEST,
+         *   title: '...',
+         *   description: 'A custom test consumable product',
+         *   pricing: {
+         *     price: '$2.99',
+         *     currency: 'USD',
+         *     priceMicros: 2990000
+         *   }
+         * }]);
          */
-        register(product: IRegisterProduct | IRegisterProduct[]) {
+        register(product: IRegisterProduct | Test.IRegisterTestProduct | (IRegisterProduct | Test.IRegisterTestProduct)[]) {
             const errors = this.registeredProducts.add(product);
             errors.forEach(error => {
                 store.errorCallbacks.trigger(error, 'register_error');
@@ -344,13 +385,30 @@ namespace CdvPurchase {
         get isReady(): boolean { return this._readyCallbacks.isReady; }
 
         /**
-         * Setup events listener.
+         * Register event callbacks.
+         *
+         * Events overview:
+         * - `productUpdated`: Called when product metadata is loaded from the store
+         * - `receiptUpdated`: Called when local receipt information changes (ownership status change, for example)
+         * - `verified`: Called after successful receipt validation (requires a receipt validator)
          *
          * @example
+         * // Monitor ownership with receipt validation
          * store.when()
-         *      .productUpdated(product => updateUI(product))
          *      .approved(transaction => transaction.verify())
-         *      .verified(receipt => receipt.finish());
+         *      .verified(receipt => {
+         *          if (store.owned("my-product")) {
+         *              // Product is owned and verified
+         *          }
+         *      });
+         *
+         * @example
+         * // Monitor ownership without receipt validation
+         * store.when().receiptUpdated(receipt => {
+         *   if (store.owned("my-product")) {
+         *     // Product is owned according to local data
+         *   }
+         * });
          */
         when() {
             const ret: When = {
@@ -485,6 +543,11 @@ namespace CdvPurchase {
         /**
          * Return true if a product is owned
          *
+         * Important: The value will be false when the app starts and will only become
+         * true after purchase receipts have been loaded and validated. Without receipt validation,
+         * it might remain false depending on the platform, make sure to store the ownership status
+         * of non-consumable products in some way.
+         *
          * @param product - The product object or identifier of the product.
          */
         owned(product: { id: string; platform?: Platform } | string) {
@@ -606,6 +669,9 @@ namespace CdvPurchase {
          * Finalize a transaction.
          *
          * This will be called from the Receipt, Transaction or VerifiedReceipt objects using the API decorators.
+         *
+         * If the transaction has already been consumed or acknowledged according to the verification API,
+         * the native platform's finish method will be skipped to avoid errors.
          */
         private async finish(receipt: Transaction | Receipt | VerifiedReceipt) {
             this.log.info(`finish(${receipt.className})`);
@@ -615,8 +681,43 @@ namespace CdvPurchase {
                     : receipt instanceof Receipt
                         ? receipt.transactions
                         : [receipt];
+
             transactions.forEach(transaction => {
-                const adapter = this.adapters.findReady(transaction.platform)?.finish(transaction);
+                // Check if this transaction has already been consumed or acknowledged according to verification API
+                let skipNativeFinish = false;
+
+                if (this.validator && receipt instanceof VerifiedReceipt) {
+                    // Find matching purchase in the verified collection
+                    const verifiedPurchase = receipt.collection.find(p => {
+                        // Match by transactionId if available
+                        return (p.transactionId && p.transactionId === transaction.transactionId);
+                    });
+
+                    if (verifiedPurchase) {
+                        // Check if transaction is acknowledged
+                        if (verifiedPurchase.isAcknowledged === true) {
+                            this.log.info(`Transaction ${transaction.transactionId} already acknowledged according to verification API`);
+                            transaction.isAcknowledged = true;
+                            skipNativeFinish = true;
+                        }
+
+                        // Check if transaction is consumed
+                        if (verifiedPurchase.isConsumed === true) {
+                            this.log.info(`Transaction ${transaction.transactionId} already consumed according to verification API`);
+                            transaction.isConsumed = true;
+                            skipNativeFinish = true;
+                        }
+                    }
+                }
+
+                const adapter = this.adapters.findReady(transaction.platform);
+
+                if (adapter?.canSkipFinish && skipNativeFinish && transaction.state === TransactionState.APPROVED) {
+                    transaction.state = TransactionState.FINISHED;
+                }
+                else {
+                    const adapter = this.adapters.findReady(transaction.platform)?.finish(transaction);
+                }
             });
         }
 

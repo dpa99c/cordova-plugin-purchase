@@ -169,7 +169,7 @@ namespace CdvPurchase {
                         payload: {
                             ok: true,
                             data: {
-                                id: receipt.transactions[0].transactionId,
+                                id: receipt.transactions?.[0]?.transactionId || 'unknown',
                                 latest_receipt: true,
                                 transaction: { type: 'test' } // dummy data
                             }
@@ -278,6 +278,7 @@ namespace CdvPurchase {
                 const bodyTransactionHash = Utils.md5(JSON.stringify(body.transaction));
                 const cached = this.cache[bodyTransactionHash];
                 if (cached) {
+                    this.log.debug("validator cache hit, using cached response");
                     return callback({receipt, payload: cached.payload});
                 }
 

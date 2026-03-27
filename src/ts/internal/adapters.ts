@@ -17,6 +17,10 @@ namespace CdvPurchase
 
         export interface Test { platform: Platform.TEST; }
         export interface WindowsStore { platform: Platform.WINDOWS_STORE; }
+        export interface IapticJS { 
+            platform: Platform.IAPTIC_JS;
+            options: IapticJS.AdapterOptions;
+        }
     }
 
     /**
@@ -30,6 +34,7 @@ namespace CdvPurchase
         | PlatformOptions.GooglePlay
         | PlatformOptions.Test
         | PlatformOptions.WindowsStore
+        | PlatformOptions.IapticJS
         ;
 
     /** @internal */
@@ -72,6 +77,53 @@ namespace CdvPurchase
         export class Adapters {
 
             /**
+             * Registry of adapter factories for dynamic adapter registration.
+             *
+             * This allows third-party adapters to be registered without modifying the core library.
+             */
+            private static adapterFactories: { [platform: string]: (context: AdapterContext, options: object) => Adapter } = {};
+
+            /**
+             * Register a custom adapter factory for a platform.
+             *
+             * Use this to add support for platforms not built into the library.
+             *
+             * @param platform - The platform identifier
+             * @param factory - A function that creates an Adapter instance
+             *
+             * @example
+             * ```typescript
+             * CdvPurchase.Internal.Adapters.registerAdapter(
+             *     'my-custom-platform' as CdvPurchase.Platform,
+             *     (context, options) => new MyCustomAdapter(context, options)
+             * );
+             * ```
+             */
+            static registerAdapter(platform: Platform, factory: (context: AdapterContext, options: object) => Adapter): void {
+                this.adapterFactories[platform] = factory;
+            }
+
+            /**
+             * Check if a custom adapter factory is registered for a platform.
+             */
+            static hasAdapterFactory(platform: Platform): boolean {
+                return platform in this.adapterFactories;
+            }
+
+            /**
+             * Create an adapter instance using a registered factory.
+             *
+             * @returns The adapter instance, or undefined if no factory is registered.
+             */
+            private static createAdapter(platform: Platform, context: AdapterContext, options: object): Adapter | undefined {
+                const factory = this.adapterFactories[platform];
+                if (factory) {
+                    return factory(context, options);
+                }
+                return undefined;
+            }
+
+            /**
              * List of instantiated adapters.
              *
              * They are added to this list by "initialize()".
@@ -94,7 +146,18 @@ namespace CdvPurchase
                             return this.list.push(new Braintree.Adapter(context, po.options));
                         case Platform.TEST:
                             return this.list.push(new Test.Adapter(context));
+                        case Platform.IAPTIC_JS:
+                            if (!po.options) {
+                                log.error('Options missing for IapticJS initialization. Use {platform: Platform.IAPTIC_JS, options: {...}} in your call to store.initialize');
+                            }
+                            return this.list.push(new IapticJS.Adapter(context, po.options));
                         default:
+                            // Check for dynamically registered adapter
+                            const dynamicAdapter = Adapters.createAdapter(po.platform, context, (po as { options?: object }).options || {});
+                            if (dynamicAdapter) {
+                                return this.list.push(dynamicAdapter);
+                            }
+                            log.warn(`No adapter found for platform: ${po.platform}`);
                             return;
                     }
                 });

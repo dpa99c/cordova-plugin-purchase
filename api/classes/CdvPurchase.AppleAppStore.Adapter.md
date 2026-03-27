@@ -31,7 +31,9 @@ Adapter for Apple AppStore using StoreKit version 1
 - [onRestoreCompleted](CdvPurchase.AppleAppStore.Adapter.md#onrestorecompleted)
 - [pseudoReceipt](CdvPurchase.AppleAppStore.Adapter.md#pseudoreceipt)
 - [ready](CdvPurchase.AppleAppStore.Adapter.md#ready)
+- [receiptsUpdated](CdvPurchase.AppleAppStore.Adapter.md#receiptsupdated)
 - [supportsParallelLoading](CdvPurchase.AppleAppStore.Adapter.md#supportsparallelloading)
+- [useSK2](CdvPurchase.AppleAppStore.Adapter.md#usesk2)
 
 ### Accessors
 
@@ -109,7 +111,7 @@ ___
 
 ### bridge
 
-• **bridge**: [`Bridge`](CdvPurchase.AppleAppStore.Bridge.Bridge.md)
+• **bridge**: [`BridgeInterface`](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md)
 
 ___
 
@@ -219,6 +221,14 @@ The value is set by the "Adapters" class (which is responsible for initializing 
 
 ___
 
+### receiptsUpdated
+
+• **receiptsUpdated**: `Debouncer`
+
+Debounced version of _receiptUpdated
+
+___
+
 ### supportsParallelLoading
 
 • **supportsParallelLoading**: `boolean` = `true`
@@ -228,6 +238,14 @@ Set to true if receipts and products can be loaded in parallel
 #### Implementation of
 
 [Adapter](../interfaces/CdvPurchase.Adapter.md).[supportsParallelLoading](../interfaces/CdvPurchase.Adapter.md#supportsparallelloading)
+
+___
+
+### useSK2
+
+• `Readonly` **useSK2**: `boolean`
+
+True when the StoreKit 2 extension is active
 
 ## Accessors
 

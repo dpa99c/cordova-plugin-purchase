@@ -23,6 +23,7 @@
 - [hasTransaction](CdvPurchase.GooglePlay.Receipt.md#hastransaction)
 - [lastTransaction](CdvPurchase.GooglePlay.Receipt.md#lasttransaction)
 - [refreshPurchase](CdvPurchase.GooglePlay.Receipt.md#refreshpurchase)
+- [removed](CdvPurchase.GooglePlay.Receipt.md#removed)
 - [verify](CdvPurchase.GooglePlay.Receipt.md#verify)
 
 ## Properties
@@ -132,6 +133,16 @@ Refresh the content of the purchase based on the native BridgePurchase
 | Name | Type |
 | :------ | :------ |
 | `purchase` | [`Purchase`](../interfaces/CdvPurchase.GooglePlay.Bridge.Purchase.md) |
+
+#### Returns
+
+`void`
+
+___
+
+### removed
+
+▸ **removed**(): `void`
 
 #### Returns
 
