@@ -70,7 +70,7 @@ SOFTWARE.
 
         <preference name="LOCAL_RECEIPT_VALIDATION" default="false" />
 
-        <!--BEGIN_MODULE LOCAL_RECEIPT_VALIDATION--><!--
+        <!--BEGIN_MODULE LOCAL_RECEIPT_VALIDATION-->
         <header-file src="src/ios/local-receipt-validation/RMAppReceipt.h" />
         <source-file src="src/ios/local-receipt-validation/RMAppReceipt.m" />
         <header-file src="src/ios/local-receipt-validation/RMStoreAppReceiptVerifier.h" />
@@ -89,14 +89,14 @@ SOFTWARE.
             </pods>
         </podspec>
 	<hook type="after_prepare" src="src/ios/local-receipt-validation/after_prepare.js" />
-        --><!--END_MODULE LOCAL_RECEIPT_VALIDATION-->
+        <!--END_MODULE LOCAL_RECEIPT_VALIDATION-->
 
-        <!--BEGIN_MODULE_STUB LOCAL_RECEIPT_VALIDATION-->
+        <!--BEGIN_MODULE_STUB LOCAL_RECEIPT_VALIDATION--><!--
         <header-file src="src/ios/local-receipt-validation/stub/RMAppReceipt.h" />
         <source-file src="src/ios/local-receipt-validation/stub/RMAppReceipt.m" />
         <header-file src="src/ios/local-receipt-validation/stub/RMStoreAppReceiptVerifier.h" />
         <source-file src="src/ios/local-receipt-validation/stub/RMStoreAppReceiptVerifier.m" />
-        <!--END_MODULE_STUB LOCAL_RECEIPT_VALIDATION-->
+        --><!--END_MODULE_STUB LOCAL_RECEIPT_VALIDATION-->
 
 </platform>
 
