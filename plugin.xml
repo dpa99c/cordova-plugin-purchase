@@ -80,15 +80,7 @@ SOFTWARE.
 
         <resource-file src="src/ios/local-receipt-validation/AppleIncRootCertificate.cer" />
 
-        <podspec>
-            <config>
-                <source url="https://cdn.cocoapods.org/"/>
-            </config>
-            <pods>
-                <pod name="OpenSSL-Universal" spec="1.1.1100"/>
-            </pods>
-        </podspec>
-	<hook type="after_prepare" src="src/ios/local-receipt-validation/after_prepare.js" />
+        <framework src="Security.framework" />
         <!--END_MODULE LOCAL_RECEIPT_VALIDATION-->
 
         <!--BEGIN_MODULE_STUB LOCAL_RECEIPT_VALIDATION--><!--

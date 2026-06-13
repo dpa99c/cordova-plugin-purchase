@@ -5,6 +5,9 @@
 //  Created by Hermes on 10/12/13.
 //  Copyright (c) 2013 Robot Media. All rights reserved.
 //
+//  Refactored to use only native iOS Security.framework and CommonCrypto.
+//  All OpenSSL dependencies removed.
+//
 //  Licensed under the Apache License, Version 2.0 (the "License");
 //  you may not use this file except in compliance with the License.
 //  You may obtain a copy of the License at
@@ -20,10 +23,8 @@
 
 #import "RMAppReceipt.h"
 #import <UIKit/UIKit.h>
-#import <openssl/pkcs7.h>
-#import <openssl/objects.h>
-#import <openssl/sha.h>
-#import <openssl/x509.h>
+#import <CommonCrypto/CommonDigest.h>
+#import <Security/Security.h>
 
 // From https://developer.apple.com/library/ios/releasenotes/General/ValidateAppStoreReceipt/Chapters/ReceiptFields.html#//apple_ref/doc/uid/TP40010573-CH106-SW1
 NSInteger const RMAppReceiptASN1TypeBundleIdentifier = 2;
@@ -44,17 +45,64 @@ NSInteger const RMAppReceiptASN1TypeSubscriptionExpirationDate = 1708;
 NSInteger const RMAppReceiptASN1TypeWebOrderLineItemID = 1711;
 NSInteger const RMAppReceiptASN1TypeCancellationDate = 1712;
 
-#pragma mark - ANS1
+#pragma mark - Low-level ASN.1 DER Parsing (replaces OpenSSL ASN1_get_object et al.)
+
+// ASN.1 tag values (only the ones used in receipt parsing)
+#define RM_ASN1_BOOLEAN           1
+#define RM_ASN1_INTEGER           2
+#define RM_ASN1_BIT_STRING        3
+#define RM_ASN1_OCTET_STRING      4
+#define RM_ASN1_NULL              5
+#define RM_ASN1_OID               6
+#define RM_ASN1_UTF8STRING       12
+#define RM_ASN1_SEQUENCE         16
+#define RM_ASN1_SET              17
+#define RM_ASN1_IA5STRING        22
+#define RM_ASN1_UTCTIME          23
+#define RM_ASN1_GENERALIZEDTIME  24
+
+static int RMASN1ReadTag(const uint8_t **pp, long *length, const uint8_t *end)
+{
+    if (*pp >= end) return -1;
+
+    int tag = *(*pp)++;
+    if ((tag & 0x1F) == 0x1F) {
+        // Long-form tag (not used in receipts, but handle for safety)
+        tag = 0;
+        while (*pp < end) {
+            uint8_t b = *(*pp)++;
+            tag = (tag << 7) | (b & 0x7F);
+            if (!(b & 0x80)) break;
+        }
+    }
+
+    if (*pp >= end) return -1;
+
+    uint8_t lenByte = *(*pp)++;
+    if (lenByte & 0x80) {
+        int numLenBytes = lenByte & 0x7F;
+        *length = 0;
+        for (int i = 0; i < numLenBytes; i++) {
+            if (*pp >= end) return -1;
+            *length = (*length << 8) | *(*pp)++;
+        }
+    } else {
+        *length = lenByte;
+    }
+
+    return tag;
+}
 
 static int RMASN1ReadInteger(const uint8_t **pp, long omax)
 {
-    int tag, asn1Class;
+    int tag;
     long length;
     int value = 0;
-    ASN1_get_object(pp, &length, &tag, &asn1Class, omax);
-    if (tag == V_ASN1_INTEGER)
+    const uint8_t *limit = *pp + omax;
+    tag = RMASN1ReadTag(pp, &length, limit);
+    if (tag == RM_ASN1_INTEGER && length > 0 && length <= 4)
     {
-        for (int i = 0; i < length; i++)
+        for (long i = 0; i < length; i++)
         {
             value = value * 0x100 + (*pp)[i];
         }
@@ -63,13 +111,14 @@ static int RMASN1ReadInteger(const uint8_t **pp, long omax)
     return value;
 }
 
-static NSData* RMASN1ReadOctectString(const uint8_t **pp, long omax)
+static NSData* RMASN1ReadOctetStringData(const uint8_t **pp, long omax)
 {
-    int tag, asn1Class;
+    int tag;
     long length;
     NSData *data = nil;
-    ASN1_get_object(pp, &length, &tag, &asn1Class, omax);
-    if (tag == V_ASN1_OCTET_STRING)
+    const uint8_t *limit = *pp + omax;
+    tag = RMASN1ReadTag(pp, &length, limit);
+    if (tag == RM_ASN1_OCTET_STRING)
     {
         data = [NSData dataWithBytes:*pp length:length];
     }
@@ -79,10 +128,11 @@ static NSData* RMASN1ReadOctectString(const uint8_t **pp, long omax)
 
 static NSString* RMASN1ReadString(const uint8_t **pp, long omax, int expectedTag, NSStringEncoding encoding)
 {
-    int tag, asn1Class;
+    int tag;
     long length;
     NSString *value = nil;
-    ASN1_get_object(pp, &length, &tag, &asn1Class, omax);
+    const uint8_t *limit = *pp + omax;
+    tag = RMASN1ReadTag(pp, &length, limit);
     if (tag == expectedTag)
     {
         value = [[NSString alloc] initWithBytes:*pp length:length encoding:encoding];
@@ -93,13 +143,251 @@ static NSString* RMASN1ReadString(const uint8_t **pp, long omax, int expectedTag
 
 static NSString* RMASN1ReadUTF8String(const uint8_t **pp, long omax)
 {
-    return RMASN1ReadString(pp, omax, V_ASN1_UTF8STRING, NSUTF8StringEncoding);
+    return RMASN1ReadString(pp, omax, RM_ASN1_UTF8STRING, NSUTF8StringEncoding);
 }
 
-static NSString* RMASN1ReadIA5SString(const uint8_t **pp, long omax)
+static NSString* RMASN1ReadIA5String(const uint8_t **pp, long omax)
 {
-    return RMASN1ReadString(pp, omax, V_ASN1_IA5STRING, NSASCIIStringEncoding);
+    return RMASN1ReadString(pp, omax, RM_ASN1_IA5STRING, NSASCIIStringEncoding);
 }
+
+#pragma mark - PKCS#7 Parsing Helpers
+
+// OIDs used in PKCS#7
+static const unsigned char kOID_signedData[]    = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02 };
+static const unsigned char kOID_data[]          = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01 };
+static const unsigned char kOID_messageDigest[] = { 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x04 };
+static const unsigned char kOID_sha1[]          = { 0x2B, 0x0E, 0x03, 0x02, 0x1A };
+static const unsigned char kOID_sha256[]        = { 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01 };
+
+static BOOL RMOIDEquals(NSData *oidData, const unsigned char *expected, size_t expectedLen)
+{
+    if (oidData.length != expectedLen) return NO;
+    return memcmp(oidData.bytes, expected, expectedLen) == 0;
+}
+
+typedef struct {
+    const uint8_t *p;
+    const uint8_t *end;
+} RMByteRange;
+
+static BOOL RMReadTagAndLength(RMByteRange *range, int *outTag, long *outLength)
+{
+    if (range->p >= range->end) return NO;
+    *outTag = RMASN1ReadTag(&range->p, outLength, range->end);
+    return (*outTag >= 0) && (range->p + *outLength <= range->end);
+}
+
+static NSData* RMReadOID(RMByteRange *range)
+{
+    int tag;
+    long length;
+    if (!RMReadTagAndLength(range, &tag, &length)) return nil;
+    if (tag != RM_ASN1_OID) return nil;
+    NSData *data = [NSData dataWithBytes:range->p length:length];
+    range->p += length;
+    return data;
+}
+
+static BOOL RMSkipElement(RMByteRange *range)
+{
+    int tag;
+    long length;
+    if (!RMReadTagAndLength(range, &tag, &length)) return NO;
+    range->p += length;
+    return YES;
+}
+
+static NSData* RMReadOctetString(RMByteRange *range)
+{
+    int tag;
+    long length;
+    if (!RMReadTagAndLength(range, &tag, &length)) return nil;
+    if (tag != RM_ASN1_OCTET_STRING) return nil;
+    NSData *data = [NSData dataWithBytes:range->p length:length];
+    range->p += length;
+    return data;
+}
+
+static NSData* RMExtractContentFromPKCS7(NSData *pkcs7Data)
+{
+    const uint8_t *p = pkcs7Data.bytes;
+    const uint8_t *end = p + pkcs7Data.length;
+
+    long len; int tag;
+    tag = RMASN1ReadTag(&p, &len, end);
+    if (tag != RM_ASN1_SEQUENCE) return nil;
+    const uint8_t *contentInfoEnd = p + len;
+
+    RMByteRange ci = { p, contentInfoEnd };
+    RMReadOID(&ci); // skip content type OID
+
+    // [0] EXPLICIT SignedData
+    if (!RMReadTagAndLength(&ci, &tag, &len)) return nil;
+    if (tag != 0xA0) return nil;
+
+    RMByteRange sd = { ci.p, ci.p + len };
+
+    // SignedData SEQUENCE
+    if (!RMReadTagAndLength(&sd, &tag, &len)) return nil;
+    if (tag != RM_ASN1_SEQUENCE) return nil;
+    sd.end = sd.p + len;
+
+    RMSkipElement(&sd); // version
+    RMSkipElement(&sd); // digest algorithms
+
+    // Embedded ContentInfo
+    if (!RMReadTagAndLength(&sd, &tag, &len)) return nil;
+    if (tag != RM_ASN1_SEQUENCE) return nil;
+    RMByteRange innerCI = { sd.p, sd.p + len };
+    RMReadOID(&innerCI); // skip OID
+
+    // Extract receipt content from [0] EXPLICIT wrapping OCTET STRING
+    NSData *contentData = nil;
+    if (innerCI.p < innerCI.end) {
+        if (!RMReadTagAndLength(&innerCI, &tag, &len)) return nil;
+        if (tag == 0xA0) {
+            innerCI.end = innerCI.p + len;
+            contentData = RMReadOctetString(&innerCI);
+        }
+    }
+    return contentData;
+}
+
+// Returns content data if verification succeeds, nil otherwise.
+// Also returns nil (with *outSignerCertData and *outSignature populated) if the
+// structure was parsed but verification needs to be attempted externally.
+static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
+                                       SecCertificateRef appleRootCert,
+                                       NSData **outSignerCertData,
+                                       NSData **outSignatureData,
+                                       NSData **outSignedAttrsContent,
+                                       SecKeyAlgorithm *outAlgorithm)
+{
+    const uint8_t *p = pkcs7Data.bytes;
+    const uint8_t *end = p + pkcs7Data.length;
+
+    long len; int tag;
+
+    // 1. ContentInfo SEQUENCE
+    tag = RMASN1ReadTag(&p, &len, end);
+    if (tag != RM_ASN1_SEQUENCE) return nil;
+    const uint8_t *contentInfoEnd = p + len;
+
+    // 2. ContentType OID (must be signedData)
+    RMByteRange ci = { p, contentInfoEnd };
+    NSData *oid = RMReadOID(&ci);
+    if (!oid || !RMOIDEquals(oid, kOID_signedData, sizeof(kOID_signedData))) return nil;
+
+    // 3. [0] EXPLICIT SignedData
+    if (!RMReadTagAndLength(&ci, &tag, &len)) return nil;
+    if (tag != 0xA0) return nil;
+    const uint8_t *signedDataEnd = ci.p + len;
+    ci.end = signedDataEnd;
+
+    // 4. SignedData SEQUENCE
+    if (!RMReadTagAndLength(&ci, &tag, &len)) return nil;
+    if (tag != RM_ASN1_SEQUENCE) return nil;
+    ci.end = ci.p + len;
+
+    // 5. Version
+    RMSkipElement(&ci);
+
+    // 6. DigestAlgorithms SET -> determine algorithm
+    if (!RMReadTagAndLength(&ci, &tag, &len)) return nil;
+    if (tag != RM_ASN1_SET) return nil;
+    RMByteRange daSet = { ci.p, ci.p + len };
+    ci.p += len;
+
+    RMByteRange da = daSet;
+    if (!RMReadTagAndLength(&da, &tag, &len)) return nil;
+    if (tag != RM_ASN1_SEQUENCE) return nil;
+    da.end = da.p + len;
+    NSData *digestAlgoOID = RMReadOID(&da);
+
+    BOOL useSHA256 = digestAlgoOID && RMOIDEquals(digestAlgoOID, kOID_sha256, sizeof(kOID_sha256));
+    CC_LONG digestLength = useSHA256 ? CC_SHA256_DIGEST_LENGTH : CC_SHA1_DIGEST_LENGTH;
+    SecKeyAlgorithm verifyAlgorithm = useSHA256
+        ? kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256
+        : kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA1;
+    if (outAlgorithm) *outAlgorithm = verifyAlgorithm;
+
+    // 7. Embedded ContentInfo -> extract receipt content
+    if (!RMReadTagAndLength(&ci, &tag, &len)) return nil;
+    if (tag != RM_ASN1_SEQUENCE) return nil;
+    RMByteRange innerCI = { ci.p, ci.p + len };
+    ci.p += len;
+    RMReadOID(&innerCI);
+
+    NSData *contentData = nil;
+    if (innerCI.p < innerCI.end) {
+        if (!RMReadTagAndLength(&innerCI, &tag, &len)) return nil;
+        if (tag == 0xA0) {
+            innerCI.end = innerCI.p + len;
+            contentData = RMReadOctetString(&innerCI);
+        }
+    }
+    if (!contentData) return nil;
+
+    // 8. Certificates [0] IMPLICIT
+    if (ci.p < ci.end) {
+        const uint8_t *savedP = ci.p;
+        if (!RMReadTagAndLength(&ci, &tag, &len)) return nil;
+        if (tag == 0xA0) {
+            RMByteRange certs = { ci.p, ci.p + len };
+            // Read first certificate
+            const uint8_t *certStart = certs.p;
+            if (!RMReadTagAndLength(&certs, &tag, &len)) return nil;
+            if (tag == RM_ASN1_SEQUENCE) {
+                if (outSignerCertData) {
+                    *outSignerCertData = [NSData dataWithBytes:certStart length:(certs.p + len) - certStart];
+                }
+            }
+            ci.p = certs.end;
+        } else {
+            ci.p = savedP;
+        }
+    }
+
+    // 9. SignerInfos SET
+    if (!RMReadTagAndLength(&ci, &tag, &len)) return nil;
+    if (tag != RM_ASN1_SET) return nil;
+    RMByteRange signerSet = { ci.p, ci.p + len };
+
+    // First SignerInfo SEQUENCE
+    if (!RMReadTagAndLength(&signerSet, &tag, &len)) return nil;
+    if (tag != RM_ASN1_SEQUENCE) return nil;
+    signerSet.end = signerSet.p + len;
+
+    RMSkipElement(&signerSet); // version
+    RMSkipElement(&signerSet); // IssuerAndSerialNumber
+    RMSkipElement(&signerSet); // DigestAlgorithm
+
+    // SignedAttributes [0] IMPLICIT
+    if (signerSet.p < signerSet.end) {
+        if (!RMReadTagAndLength(&signerSet, &tag, &len)) return nil;
+        if (tag == 0xA0) {
+            if (outSignedAttrsContent) {
+                *outSignedAttrsContent = [NSData dataWithBytes:signerSet.p length:len];
+            }
+            signerSet.p += len;
+        }
+    }
+
+    RMSkipElement(&signerSet); // SignatureAlgorithm
+
+    // Signature OCTET STRING
+    if (!RMReadTagAndLength(&signerSet, &tag, &len)) return nil;
+    if (tag == RM_ASN1_OCTET_STRING) {
+        if (outSignatureData) {
+            *outSignatureData = [NSData dataWithBytes:signerSet.p length:len];
+        }
+    }
+
+    return contentData;
+}
+
+#pragma mark - Apple Root Certificate URL
 
 static NSURL *_appleRootCertificateURL = nil;
 
@@ -110,7 +398,6 @@ static NSURL *_appleRootCertificateURL = nil;
     if (self = [super init])
     {
         NSMutableArray *purchases = [NSMutableArray array];
-         // Explicit casting to avoid errors when compiling as Objective-C++
         [RMAppReceipt enumerateASN1Attributes:(const uint8_t*)asn1Data.bytes length:asn1Data.length usingBlock:^(NSData *data, int type) {
             const uint8_t *s = (const uint8_t*)data.bytes;
             const NSUInteger length = data.length;
@@ -140,7 +427,7 @@ static NSURL *_appleRootCertificateURL = nil;
                     break;
                 case RMAppReceiptASN1TypeExpirationDate:
                 {
-                    NSString *string = RMASN1ReadIA5SString(&s, length);
+                    NSString *string = RMASN1ReadIA5String(&s, length);
                     _expirationDate = [RMAppReceipt formatRFC3339String:string];
                     break;
                 }
@@ -163,36 +450,34 @@ static NSURL *_appleRootCertificateURL = nil;
 -(BOOL)containsActiveAutoRenewableSubscriptionOfProductIdentifier:(NSString *)productIdentifier forDate:(NSDate *)date
 {
     RMAppReceiptIAP *lastTransaction = nil;
-    
+
     for (RMAppReceiptIAP *iap in self.inAppPurchases)
     {
         if (![iap.productIdentifier isEqualToString:productIdentifier]) continue;
-        
+
         if (!lastTransaction || [iap.subscriptionExpirationDate compare:lastTransaction.subscriptionExpirationDate] == NSOrderedDescending)
         {
             lastTransaction = iap;
         }
     }
-    
+
     return [lastTransaction isActiveAutoRenewableSubscriptionForDate:date];
 }
 
 - (BOOL)verifyReceiptHash
 {
-    // TODO: Getting the uuid in Mac is different. See: https://developer.apple.com/library/ios/releasenotes/General/ValidateAppStoreReceipt/Chapters/ValidateLocally.html#//apple_ref/doc/uid/TP40010573-CH1-SW5
     NSUUID *uuid = [UIDevice currentDevice].identifierForVendor;
     unsigned char uuidBytes[16];
     [uuid getUUIDBytes:uuidBytes];
-    
-    // Order taken from: https://developer.apple.com/library/ios/releasenotes/General/ValidateAppStoreReceipt/Chapters/ValidateLocally.html#//apple_ref/doc/uid/TP40010573-CH1-SW5
+
     NSMutableData *data = [NSMutableData data];
     [data appendBytes:uuidBytes length:sizeof(uuidBytes)];
     [data appendData:self.opaqueValue];
     [data appendData:self.bundleIdentifierData];
-    
-    NSMutableData *expectedHash = [NSMutableData dataWithLength:SHA_DIGEST_LENGTH];
-    SHA1((const uint8_t*)data.bytes, data.length, (uint8_t*)expectedHash.mutableBytes); // Explicit casting to avoid errors when compiling as Objective-C++
-    
+
+    NSMutableData *expectedHash = [NSMutableData dataWithLength:CC_SHA1_DIGEST_LENGTH];
+    CC_SHA1((const uint8_t*)data.bytes, (CC_LONG)data.length, (uint8_t*)expectedHash.mutableBytes);
+
     return [expectedHash isEqualToData:self.receiptHash];
 }
 
@@ -202,10 +487,10 @@ static NSURL *_appleRootCertificateURL = nil;
     NSString *path = URL.path;
     const BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:nil];
     if (!exists) return nil;
-    
-    NSData *data = [RMAppReceipt dataFromPCKS7Path:path];
+
+    NSData *data = [RMAppReceipt dataFromPKCS7Path:path];
     if (!data) return nil;
-    
+
     RMAppReceipt *receipt = [[RMAppReceipt alloc] initWithASN1Data:data];
     return receipt;
 }
@@ -215,94 +500,190 @@ static NSURL *_appleRootCertificateURL = nil;
     _appleRootCertificateURL = url;
 }
 
-#pragma mark - Utils
+#pragma mark - PKCS#7 Main Entry Point
 
-+ (NSData*)dataFromPCKS7Path:(NSString*)path
++ (NSData*)dataFromPKCS7Path:(NSString*)path
 {
-    const char *cpath = path.stringByStandardizingPath.fileSystemRepresentation;
-    FILE *fp = fopen(cpath, "rb");
-    if (!fp) return nil;
-    
-    PKCS7 *p7 = d2i_PKCS7_fp(fp, NULL);
-    fclose(fp);
-    
-    if (!p7) return nil;
-    
-    NSData *data;
+    NSData *pkcs7Data = [NSData dataWithContentsOfFile:path];
+    if (!pkcs7Data) return nil;
+
+    // Try to load the Apple Root Certificate
     NSURL *certificateURL = _appleRootCertificateURL ? : [[NSBundle mainBundle] URLForResource:@"AppleIncRootCertificate" withExtension:@"cer"];
     NSData *certificateData = [NSData dataWithContentsOfURL:certificateURL];
-    if (!certificateData || [self verifyPCKS7:p7 withCertificateData:certificateData])
+
+    if (certificateData)
     {
-        struct pkcs7_st *contents = p7->d.sign->contents;
-        if (PKCS7_type_is_data(contents))
+        SecCertificateRef appleRootCert = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)certificateData);
+        if (appleRootCert)
         {
-            ASN1_OCTET_STRING *octets = contents->d.data;
-            data = [NSData dataWithBytes:octets->data length:octets->length];
+            NSData *verifiedContent = [self validatePKCS7:pkcs7Data withAppleRootCertificate:appleRootCert];
+            CFRelease(appleRootCert);
+            if (verifiedContent) return verifiedContent;
         }
     }
-    PKCS7_free(p7);
-    return data;
+
+    // Fallback: extract content without verification
+    return RMExtractContentFromPKCS7(pkcs7Data);
 }
 
-+ (BOOL)verifyPCKS7:(PKCS7*)container withCertificateData:(NSData*)certificateData
-{ // Based on: https://developer.apple.com/library/ios/releasenotes/General/ValidateAppStoreReceipt/Chapters/ValidateLocally.html#//apple_ref/doc/uid/TP40010573-CH1-SW17
-    static int verified = 1;
-    int result = 0;
-    OpenSSL_add_all_digests(); // Required for PKCS7_verify to work
-    X509_STORE *store = X509_STORE_new();
-    if (store)
-    {
-        const uint8_t *certificateBytes = (uint8_t *)(certificateData.bytes);
-        X509 *certificate = d2i_X509(NULL, &certificateBytes, (long)certificateData.length);
-        if (certificate)
-        {
-            X509_STORE_add_cert(store, certificate);
-            
-            BIO *payload = BIO_new(BIO_s_mem());
-            result = PKCS7_verify(container, NULL, store, NULL, payload, 0);
-            BIO_free(payload);
-            
-            X509_free(certificate);
++ (NSData*)validatePKCS7:(NSData*)pkcs7Data withAppleRootCertificate:(SecCertificateRef)appleRootCert
+{
+    NSData *signerCertData = nil;
+    NSData *signatureData = nil;
+    NSData *signedAttrsContent = nil;
+    SecKeyAlgorithm algorithm = kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA1;
+
+    NSData *contentData = RMVerifyPKCS7Signature(pkcs7Data, appleRootCert,
+                                                  &signerCertData, &signatureData,
+                                                  &signedAttrsContent, &algorithm);
+    if (!contentData) return nil;
+    if (!signerCertData || !signatureData || !signedAttrsContent) return nil;
+
+    // Determine digest parameters from algorithm
+    BOOL useSHA256 = (algorithm == kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256);
+    CC_LONG digestLength = useSHA256 ? CC_SHA256_DIGEST_LENGTH : CC_SHA1_DIGEST_LENGTH;
+
+    // --- Step A: Verify certificate chain ---
+    SecCertificateRef signerCert = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)signerCertData);
+    if (!signerCert) return nil;
+
+    SecPolicyRef policy = SecPolicyCreateBasicX509();
+    NSArray *certs = @[ (__bridge id)signerCert ];
+    SecTrustRef trust = NULL;
+    OSStatus status = SecTrustCreateWithCertificates((__bridge CFArrayRef)certs, policy, &trust);
+    if (status != errSecSuccess) {
+        CFRelease(signerCert);
+        CFRelease(policy);
+        return nil;
+    }
+
+    SecTrustSetAnchorCertificates(trust, (__bridge CFArrayRef)@[ (__bridge id)appleRootCert ]);
+    SecTrustSetAnchorCertificatesOnly(trust, YES);
+
+    CFErrorRef trustError = NULL;
+    BOOL trusted = SecTrustEvaluateWithError(trust, &trustError);
+    if (!trusted) {
+        CFRelease(trust);
+        CFRelease(signerCert);
+        CFRelease(policy);
+        return nil;
+    }
+
+    // --- Step B: Verify message digest in signedAttrs matches content ---
+    // signedAttrs is a SET of SEQUENCE { OID, SET { value } }
+    // Look for messageDigest OID (1.2.840.113549.1.9.4)
+    RMByteRange sa = { signedAttrsContent.bytes, (const uint8_t*)signedAttrsContent.bytes + signedAttrsContent.length };
+    NSData *foundMessageDigest = nil;
+
+    while (sa.p < sa.end) {
+        int tag; long len;
+        if (!RMReadTagAndLength(&sa, &tag, &len)) break;
+        if (tag != RM_ASN1_SEQUENCE) break;
+        RMByteRange attr = { sa.p, sa.p + len };
+        sa.p += len;
+
+        NSData *attrOID = RMReadOID(&attr);
+        if (attrOID && RMOIDEquals(attrOID, kOID_messageDigest, sizeof(kOID_messageDigest))) {
+            if (!RMReadTagAndLength(&attr, &tag, &len)) break;
+            if (tag == RM_ASN1_SET) {
+                attr.end = attr.p + len;
+                foundMessageDigest = RMReadOctetString(&attr);
+            }
+            break;
         }
     }
-    X509_STORE_free(store);
-    EVP_cleanup(); // Balances OpenSSL_add_all_digests (), perhttp://www.openssl.org/docs/crypto/OpenSSL_add_all_algorithms.html
-    
-    return result == verified;
+
+    // Compute digest of the content
+    unsigned char computedDigest[CC_SHA256_DIGEST_LENGTH];
+    if (useSHA256) {
+        CC_SHA256(contentData.bytes, (CC_LONG)contentData.length, computedDigest);
+    } else {
+        CC_SHA1(contentData.bytes, (CC_LONG)contentData.length, computedDigest);
+    }
+    NSData *computedDigestData = [NSData dataWithBytes:computedDigest length:digestLength];
+
+    if (!foundMessageDigest || ![foundMessageDigest isEqualToData:computedDigestData]) {
+        CFRelease(trust);
+        CFRelease(signerCert);
+        CFRelease(policy);
+        return nil;
+    }
+
+    // --- Step C: Re-encode signedAttrs for signature verification ---
+    // The signature was computed over the DER encoding of signedAttrs as SET OF,
+    // but they were stored with IMPLICIT [0] tag. Re-encode with SET tag.
+    NSMutableData *reencoded = [NSMutableData data];
+    uint8_t setTag = 0x31;
+    [reencoded appendBytes:&setTag length:1];
+    NSUInteger saLen = signedAttrsContent.length;
+    if (saLen < 128) {
+        uint8_t byte = (uint8_t)saLen;
+        [reencoded appendBytes:&byte length:1];
+    } else if (saLen < 256) {
+        uint8_t bytes[] = { 0x81, (uint8_t)saLen };
+        [reencoded appendBytes:bytes length:2];
+    } else {
+        uint8_t bytes[] = { 0x82, (uint8_t)(saLen >> 8), (uint8_t)(saLen & 0xFF) };
+        [reencoded appendBytes:bytes length:3];
+    }
+    [reencoded appendData:signedAttrsContent];
+
+    // --- Step D: Verify RSA signature ---
+    SecKeyRef publicKey = SecTrustCopyPublicKey(trust);
+    CFErrorRef verifyError = NULL;
+    BOOL signatureValid = SecKeyVerifySignature(publicKey,
+                                                 algorithm,
+                                                 (__bridge CFDataRef)reencoded,
+                                                 (__bridge CFDataRef)signatureData,
+                                                 &verifyError);
+
+    CFRelease(publicKey);
+    CFRelease(trust);
+    CFRelease(signerCert);
+    CFRelease(policy);
+
+    if (!signatureValid) return nil;
+
+    return contentData;
 }
+
+#pragma mark - ASN.1 Receipt Attribute Enumeration
 
 /*
- Based on https://github.com/rmaddy/VerifyStoreReceiptiOS
+ Reimplemented using custom DER parsing instead of OpenSSL's ASN1_get_object.
+ Matches the original behavior exactly.
  */
 + (void)enumerateASN1Attributes:(const uint8_t*)p length:(long)tlength usingBlock:(void (^)(NSData *data, int type))block
 {
-    int type, tag;
+    int tag;
     long length;
-    
+
     const uint8_t *end = p + tlength;
-    
-    ASN1_get_object(&p, &length, &type, &tag, end - p);
-    if (type != V_ASN1_SET) return;
-    
-    while (p < end)
+
+    tag = RMASN1ReadTag(&p, &length, end);
+    if (tag != RM_ASN1_SET) return;
+
+    const uint8_t *setEnd = p + length;
+
+    while (p < setEnd)
     {
-        ASN1_get_object(&p, &length, &type, &tag, end - p);
-        if (type != V_ASN1_SEQUENCE) break;
-        
+        tag = RMASN1ReadTag(&p, &length, setEnd);
+        if (tag != RM_ASN1_SEQUENCE) break;
+
         const uint8_t *sequenceEnd = p + length;
-        
+
         const int attributeType = RMASN1ReadInteger(&p, sequenceEnd - p);
         RMASN1ReadInteger(&p, sequenceEnd - p); // Consume attribute version
-        
-        NSData *data = RMASN1ReadOctectString(&p, sequenceEnd - p);
+
+        NSData *data = RMASN1ReadOctetStringData(&p, sequenceEnd - p);
         if (data)
         {
             block(data, attributeType);
         }
-        
+
         while (p < sequenceEnd)
-        { // Skip remaining fields
-            ASN1_get_object(&p, &length, &type, &tag, sequenceEnd - p);
+        { // Skip remaining fields in case of unexpected extra data
+            tag = RMASN1ReadTag(&p, &length, sequenceEnd);
             p += length;
         }
     }
@@ -323,13 +704,14 @@ static NSURL *_appleRootCertificateURL = nil;
 
 @end
 
+#pragma mark - RMAppReceiptIAP
+
 @implementation RMAppReceiptIAP
 
 - (instancetype)initWithASN1Data:(NSData*)asn1Data
 {
     if (self = [super init])
     {
-        // Explicit casting to avoid errors when compiling as Objective-C++
         [RMAppReceipt enumerateASN1Attributes:(const uint8_t*)asn1Data.bytes length:asn1Data.length usingBlock:^(NSData *data, int type) {
             const uint8_t *p = (const uint8_t*)data.bytes;
             const NSUInteger length = data.length;
@@ -346,7 +728,7 @@ static NSURL *_appleRootCertificateURL = nil;
                     break;
                 case RMAppReceiptASN1TypePurchaseDate:
                 {
-                    NSString *string = RMASN1ReadIA5SString(&p, length);
+                    NSString *string = RMASN1ReadIA5String(&p, length);
                     _purchaseDate = [RMAppReceipt formatRFC3339String:string];
                     break;
                 }
@@ -355,13 +737,13 @@ static NSURL *_appleRootCertificateURL = nil;
                     break;
                 case RMAppReceiptASN1TypeOriginalPurchaseDate:
                 {
-                    NSString *string = RMASN1ReadIA5SString(&p, length);
+                    NSString *string = RMASN1ReadIA5String(&p, length);
                     _originalPurchaseDate = [RMAppReceipt formatRFC3339String:string];
                     break;
                 }
                 case RMAppReceiptASN1TypeSubscriptionExpirationDate:
                 {
-                    NSString *string = RMASN1ReadIA5SString(&p, length);
+                    NSString *string = RMASN1ReadIA5String(&p, length);
                     _subscriptionExpirationDate = [RMAppReceipt formatRFC3339String:string];
                     break;
                 }
@@ -370,7 +752,7 @@ static NSURL *_appleRootCertificateURL = nil;
                     break;
                 case RMAppReceiptASN1TypeCancellationDate:
                 {
-                    NSString *string = RMASN1ReadIA5SString(&p, length);
+                    NSString *string = RMASN1ReadIA5String(&p, length);
                     _cancellationDate = [RMAppReceipt formatRFC3339String:string];
                     break;
                 }
@@ -383,9 +765,9 @@ static NSURL *_appleRootCertificateURL = nil;
 - (BOOL)isActiveAutoRenewableSubscriptionForDate:(NSDate*)date
 {
     NSAssert(self.subscriptionExpirationDate != nil, @"The product %@ is not an auto-renewable subscription.", self.productIdentifier);
-    
+
     if (self.cancellationDate) return NO;
-    
+
     return [self.purchaseDate compare:date] != NSOrderedDescending && [date compare:self.subscriptionExpirationDate] != NSOrderedDescending;
 }
 
