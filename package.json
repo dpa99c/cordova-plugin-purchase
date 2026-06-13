@@ -42,9 +42,6 @@
     "url": "https://github.com/j3k0/cordova-plugin-purchase/issues"
   },
   "homepage": "https://github.com/j3k0/cordova-plugin-purchase",
-    "dependencies": {
-        "xml-js": "^1.6.11"
-    },
   "devDependencies": {
     "@types/jest": "^29.5.4",
     "iaptic-js": "^1.0.2",

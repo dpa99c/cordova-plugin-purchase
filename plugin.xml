@@ -68,9 +68,7 @@ SOFTWARE.
 
         <framework src="StoreKit.framework" />
 
-        <preference name="LOCAL_RECEIPT_VALIDATION" default="false" />
-
-        <!--BEGIN_MODULE LOCAL_RECEIPT_VALIDATION-->
+        <!-- On-device receipt validation -->
         <header-file src="src/ios/local-receipt-validation/RMAppReceipt.h" />
         <source-file src="src/ios/local-receipt-validation/RMAppReceipt.m" />
         <header-file src="src/ios/local-receipt-validation/RMStoreAppReceiptVerifier.h" />
@@ -81,14 +79,6 @@ SOFTWARE.
         <resource-file src="src/ios/local-receipt-validation/AppleIncRootCertificate.cer" />
 
         <framework src="Security.framework" />
-        <!--END_MODULE LOCAL_RECEIPT_VALIDATION-->
-
-        <!--BEGIN_MODULE_STUB LOCAL_RECEIPT_VALIDATION--><!--
-        <header-file src="src/ios/local-receipt-validation/stub/RMAppReceipt.h" />
-        <source-file src="src/ios/local-receipt-validation/stub/RMAppReceipt.m" />
-        <header-file src="src/ios/local-receipt-validation/stub/RMStoreAppReceiptVerifier.h" />
-        <source-file src="src/ios/local-receipt-validation/stub/RMStoreAppReceiptVerifier.m" />
-        --><!--END_MODULE_STUB LOCAL_RECEIPT_VALIDATION-->
 
 </platform>
 

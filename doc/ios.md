@@ -179,8 +179,5 @@ As outlined in the [API documentation](api.md#receipt-validation), validation of
 #### On-device validation
 - In some circumstances where the in-app products are low-value or niche, server-side validation/parsing may seem like overkill and client-side validation/parsing of the app store receipt within the app on the device is sufficient.
 - For this use case, this plugin implements on-device validation using the [RMStore](https://github.com/robotmedia/RMStore) library to provide the ability for the plugin to validate/parse app store receipts on the device.
-- By default, this is functionality disabled but can be enabled at plugin installation time by setting the `LOCAL_RECEIPT_VALIDATION` plugin variable:
-  - `cordova plugin add cordova-plugin-purchase --variable LOCAL_RECEIPT_VALIDATION=true`
-  - Note: if the plugin is already installed, you'll need to uninstall and re-install it with the new plugin variable value:
-    - `cordova plugin rm cordova-plugin-purchase && cordova plugin add cordova-plugin-purchase --variable LOCAL_RECEIPT_VALIDATION=true`
-- Note: the RMStore implementation uses the [OpenSSL crypto library](https://www.openssl.org/) which will be pulled into the app build and therefore **enabling on-device validation will add about 20Mb to the size of your app**.
+- Note: the original RMStore implementation uses the [OpenSSL crypto library](https://www.openssl.org/) which adds about 20Mb to the size of the app, 
+so this plugin has been modified to use only built-in iOS frameworks (e.g. `Security.framework`, `CommonCrypto`) to perform the receipt validation/parsing, removing the OpenSSL dependency completely.
