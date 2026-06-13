@@ -212,8 +212,34 @@ namespace CdvPurchase {
          * Might ask the user to login.
          */
         restorePurchases(): Promise<IError | undefined>;
+
+        /**
+         * Retrieve the billing country code from the platform's storefront.
+         *
+         * Returns an ISO 3166-1 alpha-2 country code (e.g., "US", "FR"),
+         * or undefined if the storefront information is not available.
+         */
+        getStorefront?(): Promise<string | undefined>;
     }
 
+    /**
+     * A storefront country code, scoped to a specific payment platform.
+     *
+     * Returned from {@link Store.getStorefront} and passed to
+     * `when().storefrontUpdated()` listeners.
+     */
+    export interface Storefront {
+        /** The platform this storefront belongs to. */
+        readonly platform: Platform;
+        /**
+         * ISO 3166-1 alpha-2 country code (e.g., "US", "FR").
+         *
+         * Undefined if the value has not been fetched yet, or if the fetch
+         * failed. Never set to a falsy value once populated — a later failed
+         * refresh will preserve the previously-known country code.
+         */
+        readonly countryCode?: string;
+    }
 
     /**
      * Data to attach to a transaction.
@@ -223,8 +249,27 @@ namespace CdvPurchase {
      */
     export interface AdditionalData {
 
-        /** The application's user identifier, will be obfuscated with md5 to fill `accountId` if necessary */
+        /**
+         * The application's user identifier.
+         *
+         * @deprecated Set {@link Store.applicationUsername} instead. The
+         * per-transaction value is ignored — adapters always read the
+         * store-level username so receipt validation later (which doesn't
+         * have access to the original additionalData) sees the same value
+         * that was sent to the native API at purchase time. Passing this
+         * field logs a one-shot notice.
+         */
         applicationUsername?: string;
+
+        /**
+         * Quantity of items to purchase.
+         *
+         * Only supported on platforms that report the `'orderQuantity'` capability.
+         * Platforms without support will ignore this field.
+         *
+         * @see {@link Store.checkSupport}
+         */
+        quantity?: number;
 
         /** GooglePlay specific additional data */
         googlePlay?: GooglePlay.AdditionalData;
@@ -235,6 +280,39 @@ namespace CdvPurchase {
         /** Apple AppStore specific additional data */
         appStore?: AppleAppStore.AdditionalData;
     }
+
+    /**
+     * Obfuscation strategy for the application username.
+     *
+     * Controls how `applicationUsername` is transformed before being sent to
+     * each platform's native API.
+     *
+     * - `'uuid'` — **Recommended.** MD5 hash formatted as UUIDv3 on all
+     *   platforms. Deterministic, valid UUID, works as Apple's
+     *   `appAccountToken` (SK1 + SK2) and Google Play's
+     *   `obfuscatedAccountId`.
+     *
+     * - `'legacy'` (default) — Only use this when an existing server-side
+     *   integration already correlates against the original 32-hex MD5 value
+     *   sent on Google Play. New integrations should pick `'uuid'`.
+     *   - Google Play: raw MD5 hash (32 hex chars)
+     *   - Apple AppStore (SK2): MD5 hash formatted as UUIDv3
+     *   - Apple AppStore (SK1, deprecated): raw username, unchanged
+     *   - Other platforms: MD5 hash formatted as UUIDv3
+     *
+     * - `'disabled'` — No obfuscation. The raw `applicationUsername` is
+     *   passed through to all platforms. For Apple SK2, the value must be a
+     *   valid UUID string or `appAccountToken` will not be set.
+     *
+     * - Custom function — `(username: string, platform: Platform) => string`.
+     *   Receives the raw username and platform, returns the obfuscated value.
+     *   For Apple (both SK1 and SK2), the function must return a valid UUID
+     *   string.
+     *
+     * @see {@link Store.obfuscator}
+     * @see {@link https://github.com/j3k0/cordova-plugin-purchase/issues/1665}
+     */
+    export type Obfuscator = 'legacy' | 'uuid' | 'disabled' | ((applicationUsername: string, platform: Platform) => string);
 
     /**
      * Purchase platforms supported by the plugin
@@ -268,7 +346,7 @@ namespace CdvPurchase {
      *
      * @see {@link Store.checkSupport}
      */
-    export type PlatformFunctionality = 'requestPayment' | 'order' | 'manageSubscriptions' | 'manageBilling';
+    export type PlatformFunctionality = 'requestPayment' | 'order' | 'orderQuantity' | 'manageSubscriptions' | 'manageBilling' | 'getStorefront';
 
     /**
      * Possible states of a transaction.
@@ -346,6 +424,17 @@ namespace CdvPurchase {
          * If no platforms have any receipts (user made no purchase), this will also get called.
          */
         receiptsVerified(cb: Callback<void>, callbackName?: string): When;
+
+        /**
+         * Register a function called when a platform's storefront country code changes.
+         *
+         * Fires when a platform's cached value transitions to a different non-empty
+         * string. Does not fire for no-op refreshes, failed refreshes, or transitions
+         * to undefined (the cache preserves the last-known value).
+         *
+         * @param cb - Callback invoked with the updated {@link Storefront}
+         */
+        storefrontUpdated(cb: Callback<Storefront>, callbackName?: string): When;
     }
 
     /** Whether or not the user intends to let the subscription auto-renew. */

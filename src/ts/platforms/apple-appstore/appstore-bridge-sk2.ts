@@ -27,11 +27,11 @@ namespace CdvPurchase {
                 purchased: (transactionIdentifier: string, productId: string,
                     originalTransactionIdentifier?: string, transactionDate?: string,
                     discountId?: string, expirationDate?: string,
-                    jwsRepresentation?: string) => void;
+                    jwsRepresentation?: string, quantity?: number) => void;
                 restored: (transactionIdentifier: string, productId: string,
                     originalTransactionIdentifier?: string, transactionDate?: string,
                     discountId?: string, expirationDate?: string,
-                    jwsRepresentation?: string) => void;
+                    jwsRepresentation?: string, quantity?: number) => void;
             }
 
             export class SK2NativeBridge implements Bridge.BridgeInterface {
@@ -42,6 +42,8 @@ namespace CdvPurchase {
                 appStoreReceipt?: AppleAppStore.ApplicationReceipt | null;
                 private registeredProducts: string[] = [];
                 private needRestoreNotification = false;
+                pendingTransactionsReady?: Promise<void>;
+                private _pendingTransactionsResolve?: () => void;
                 private pendingUpdates: {
                     state: Bridge.TransactionState;
                     errorCode: ErrorCode | undefined;
@@ -54,6 +56,7 @@ namespace CdvPurchase {
                     discountId: string | undefined;
                     expirationDate: string | undefined;
                     jwsRepresentation: string | undefined;
+                    quantity: number | undefined;
                 }[] = [];
 
                 /** True when this bridge is active (SK2 extension installed + iOS 15+) */
@@ -119,6 +122,9 @@ namespace CdvPurchase {
                         protectCall(this.options.ready, 'options.ready');
                         protectCall(success, 'init.success');
                         this.initialized = true;
+                        this.pendingTransactionsReady = new Promise<void>(resolve => {
+                            this._pendingTransactionsResolve = resolve;
+                        });
                         setTimeout(() => this.processPendingTransactions(), 50);
                     };
 
@@ -134,6 +140,10 @@ namespace CdvPurchase {
                     log('processing pending transactions');
                     exec('processPendingTransactions', [], () => {
                         this.finalizeTransactionUpdates();
+                        if (this._pendingTransactionsResolve) {
+                            this._pendingTransactionsResolve();
+                            this._pendingTransactionsResolve = undefined;
+                        }
                     }, undefined);
                 }
 
@@ -234,7 +244,8 @@ namespace CdvPurchase {
                         this.transactionUpdated(args.state, args.errorCode, args.errorText,
                             args.transactionIdentifier, args.productId, args.transactionReceipt,
                             args.originalTransactionIdentifier, args.transactionDate,
-                            args.discountId, args.expirationDate, args.jwsRepresentation);
+                            args.discountId, args.expirationDate, args.jwsRepresentation,
+                            args.quantity);
                     }
                     this.pendingUpdates = [];
                 }
@@ -255,13 +266,15 @@ namespace CdvPurchase {
                     transactionDate: string | undefined,
                     discountId: string | undefined,
                     expirationDate?: string | undefined,
-                    jwsRepresentation?: string | undefined
+                    jwsRepresentation?: string | undefined,
+                    quantity?: number | undefined
                 ) {
                     if (!this.initialized) {
                         this.pendingUpdates.push({
                             state, errorCode, errorText, transactionIdentifier,
                             productId, transactionReceipt, originalTransactionIdentifier,
-                            transactionDate, discountId, expirationDate, jwsRepresentation
+                            transactionDate, discountId, expirationDate, jwsRepresentation,
+                            quantity
                         });
                         return;
                     }
@@ -284,7 +297,7 @@ namespace CdvPurchase {
                             protectCall(this.options.purchased, 'options.purchased',
                                 transactionIdentifier, productId,
                                 originalTransactionIdentifier, transactionDate,
-                                discountId, expirationDate, jwsRepresentation);
+                                discountId, expirationDate, jwsRepresentation, quantity);
                             return;
                         case "PaymentTransactionStateDeferred":
                             protectCall(this.options.deferred, 'options.deferred', productId);
@@ -296,10 +309,13 @@ namespace CdvPurchase {
                                 errorCode || ErrorCode.UNKNOWN, errorText || 'ERROR', { productId });
                             return;
                         case "PaymentTransactionStateRestored":
+                            // Note: quantity is always irrelevant for restored transactions on iOS —
+                            // consumable products cannot be restored. Passed through to maintain
+                            // positional argument consistency with the purchased callback.
                             protectCall(this.options.restored, 'options.restored',
                                 transactionIdentifier, productId,
                                 originalTransactionIdentifier, transactionDate,
-                                discountId, expirationDate, jwsRepresentation);
+                                discountId, expirationDate, jwsRepresentation, quantity);
                             return;
                         case "PaymentTransactionStateFinished":
                             protectCall(this.options.finished, 'options.finished',
@@ -346,6 +362,20 @@ namespace CdvPurchase {
                     };
                     this.appStoreReceipt = null;
                     exec('appStoreRefreshReceipt', [], loaded, error);
+                }
+
+                /** Retrieve the storefront country code from StoreKit */
+                getStorefront(): Promise<string | undefined> {
+                    return new Promise((resolve) => {
+                        // Use StoreKit 2's Storefront.current via the SK2 plugin,
+                        // which works on Mac Catalyst where SK1's storefront is nil.
+                        window.cordova.exec((countryCode: string) => {
+                            resolve(countryCode || undefined);
+                        }, (err: string) => {
+                            log('getStorefront failed: ' + err);
+                            resolve(undefined);
+                        }, "StoreKit2Plugin", "getStorefront", []);
+                    });
                 }
 
                 loadReceipts(callback: (receipt: ApplicationReceipt) => void,

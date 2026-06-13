@@ -44,6 +44,7 @@ namespace CdvPurchase {
             adapters: Adapters;
             validator_privacy_policy: PrivacyPolicyItem | PrivacyPolicyItem[] | undefined;
             getApplicationUsername(): string | undefined;
+            obfuscateUsername: (applicationUsername: string, platform: CdvPurchase.Platform) => string | undefined;
             verifiedCallbacks: Callbacks<VerifiedReceipt>;
             unverifiedCallbacks: Callbacks<UnverifiedReceipt>;
             finish(receipt:VerifiedReceipt): Promise<void>;
@@ -212,17 +213,22 @@ namespace CdvPurchase {
                 const body = await adapter?.receiptValidationBody(receipt);
                 if (!body) return;
 
-                // Add the applicationUsername
+                // Add the applicationUsername and its obfuscated form
+                const rawUsername = this.controller.getApplicationUsername();
                 body.additionalData = {
                     ...body.additionalData ?? {},
-                    applicationUsername: this.controller.getApplicationUsername(),
+                    applicationUsername: rawUsername,
                 }
                 if (!body.additionalData.applicationUsername) delete body.additionalData.applicationUsername;
+                if (rawUsername) {
+                    const obfuscated = this.controller.obfuscateUsername(rawUsername, receipt.platform);
+                    if (obfuscated) body.additionalData.obfuscatedUsername = obfuscated;
+                }
 
                 // Add device information
                 body.device = {
                     ...body.device ?? {},
-                    ...CdvPurchase.Validator.Internal.getDeviceInfo(this.controller),
+                    ...await CdvPurchase.Validator.Internal.getDeviceInfo(this.controller),
                 }
 
                 // Add legacy pricing information
@@ -242,7 +248,37 @@ namespace CdvPurchase {
                     }
                 }
 
+                // Only include the products array once per day to reduce request size.
+                // The products array is used by the validator for analytics (price history,
+                // transaction amounts) but not for the validation flow itself.
+                // The top-level price/currency fields serve as fallback when products is omitted.
+                if (!this.shouldSendProducts()) {
+                    delete body.products;
+                }
+
                 return body;
+            }
+
+            /** Check if the products array should be included in the validation request.
+             *  Returns true at most once per day, tracked via localStorage. */
+            private shouldSendProducts(): boolean {
+                const STORAGE_KEY = 'cdvpurchase_has_sent_products_in_validation';
+                const ONE_DAY_MS = 86400000;
+                try {
+                    const stored = window.localStorage?.getItem(STORAGE_KEY);
+                    if (stored) {
+                        const lastSent = parseInt(stored, 10);
+                        if (!isNaN(lastSent) && (Date.now() - lastSent) < ONE_DAY_MS) {
+                            return false;
+                        }
+                    }
+                    // Send products this time and record the date
+                    window.localStorage?.setItem(STORAGE_KEY, String(Date.now()));
+                    return true;
+                } catch (_e) {
+                    // localStorage not available (e.g. private browsing)
+                    return true;
+                }
             }
 
             /**
@@ -327,13 +363,32 @@ namespace CdvPurchase {
 
         /**
          * Check if a payload looks like a valid validator response.
+         *
+         * When `ok` is `true`, validates that `data` exists and contains the
+         * fields the rest of the pipeline reads unconditionally: `id` (used to
+         * key the verified-receipt cache) and `transaction` (stored as the
+         * native transaction). Optional fields like `latest_receipt`,
+         * `collection`, `warning`, `date` are not required — a validator that
+         * omits them produces a usable VerifiedReceipt all the same.
+         *
+         * When `ok` is `false`, the `data` field is optional per ErrorPayload.
          */
         function isValidatorResponsePayload(payload: unknown): payload is Validator.Response.Payload {
-            // TODO: could be made more robust.
-            return (!!payload)
-                && (typeof payload === 'object')
-                && ('ok' in payload)
-                && (typeof (payload as any).ok === 'boolean');
+            if (!payload || typeof payload !== 'object')
+                return false;
+            const p = payload as any;
+            if (typeof p.ok !== 'boolean')
+                return false;
+            if (p.ok === true) {
+                const data = p.data;
+                if (!data || typeof data !== 'object')
+                    return false;
+                if (typeof data.id !== 'string')
+                    return false;
+                if (!data.transaction || typeof data.transaction !== 'object')
+                    return false;
+            }
+            return true;
         }
     }
 }

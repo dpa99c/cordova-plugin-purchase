@@ -8,6 +8,7 @@ The adapter programs against this interface, not a concrete class.
 ## Implemented by
 
 - [`Bridge`](../classes/CdvPurchase.AppleAppStore.Bridge.Bridge.md)
+- [`CapacitorNativeBridge`](../classes/CdvPurchase.AppleAppStore.CapacitorBridge.CapacitorNativeBridge.md)
 - [`SK2NativeBridge`](../classes/CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md)
 
 ## Table of contents
@@ -16,12 +17,14 @@ The adapter programs against this interface, not a concrete class.
 
 - [appStoreReceipt](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#appstorereceipt)
 - [isSK2](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#issk2)
+- [pendingTransactionsReady](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#pendingtransactionsready)
 - [transactionsForProduct](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#transactionsforproduct)
 
 ### Methods
 
 - [canMakePayments](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#canmakepayments)
 - [finish](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#finish)
+- [getStorefront](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#getstorefront)
 - [init](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#init)
 - [load](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#load)
 - [loadReceipts](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#loadreceipts)
@@ -47,6 +50,14 @@ ___
 • `Optional` `Readonly` **isSK2**: `boolean`
 
 Whether this bridge uses StoreKit 2
+
+___
+
+### pendingTransactionsReady
+
+• `Optional` **pendingTransactionsReady**: `Promise`\<`void`\>
+
+Resolves when pending transactions from the native queue have been processed
 
 ___
 
@@ -94,6 +105,18 @@ ___
 #### Returns
 
 `void`
+
+___
+
+### getStorefront
+
+▸ **getStorefront**(): `Promise`\<`undefined` \| `string`\>
+
+Retrieve the storefront country code (alpha-3 on iOS)
+
+#### Returns
+
+`Promise`\<`undefined` \| `string`\>
 
 ___
 

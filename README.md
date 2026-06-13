@@ -1,6 +1,6 @@
-# Cordova Purchase Plugin
+# Cdv Purchase Plugin
 
-> In-App Purchases for Cordova
+> Native Capacitor and Cordova Plugin for In-App Purchases
 
 ---
 
@@ -8,13 +8,13 @@ Need professional help and support? [Contact Me](mailto:hoelt@fovea.cc).
 
 ## Summary
 
-This plugin allows **In-App Purchases** to be made from **Cordova, Ionic and Capacitor** applications.
+This plugin allows **In-App Purchases** to be made from **Capacitor**, **Cordova** and **Ionic** applications.
 
-It lets you handle in-app purchases on many platforms with a single codebase.
+It lets you handle in-app purchases on many platforms with a single codebase. The plugin provides **native implementations** for both Capacitor and Cordova — no compatibility layer needed.
 
-This is a plugin for the **Apache Cordova** framework that provides an easy and flexible way to integrate **in-app purchases** into Cordova-based mobile applications, including popular frameworks such as **Ionic and PhoneGap**. With this plugin, you can easily add support for in-app purchases of digital content, such as subscriptions, consumables, and non-consumables, using the store-specific purchase APIs provided by the major mobile platforms. The plugin also supports requesting payments through popular payment providers such as **Braintree**, allowing you to easily accept payments from your users.
+This plugin provides an easy and flexible way to integrate **in-app purchases** into your mobile applications. You can easily add support for in-app purchases of digital content, such as subscriptions, consumables, and non-consumables, using the store-specific purchase APIs provided by the major mobile platforms. The plugin also supports requesting payments through popular payment providers such as **Braintree**, allowing you to easily accept payments from your users.
 
-The Cordova-Plugin-Purchase plugin is designed to be easy to use and integrate into your Cordova app, and it provides a consistent API across all supported platforms, so you can focus on building your app without worrying about platform-specific differences. Whether you are building a subscription-based app, a freemium app, or any other app that requires in-app purchases, the Cordova-Plugin-Purchase plugin can help you get started quickly and easily.
+The plugin is designed to be easy to use and provides a consistent API across all supported platforms, so you can focus on building your app without worrying about platform-specific differences. Whether you are building a subscription-based app, a freemium app, or any other app that requires in-app purchases, this plugin can help you get started quickly and easily.
 
 ### Features
 
@@ -30,14 +30,35 @@ The Cordova-Plugin-Purchase plugin is designed to be easy to use and integrate i
 
 ## Installation
 
-### Install the plugin (Cordova)
+### Capacitor
+
+```sh
+npm install capacitor-plugin-cdv-purchase
+npx cap sync
+```
+
+```ts
+import { store, ProductType, Platform } from 'capacitor-plugin-cdv-purchase';
+```
+
+The full `CdvPurchase` namespace and convenience exports are available:
+
+```ts
+import { CdvPurchase, store, Store, ProductType, Platform, LogLevel, ErrorCode, Iaptic } from 'capacitor-plugin-cdv-purchase';
+```
+
+### Cordova
 
 ```sh
 cordova plugin add "cordova-plugin-purchase"
 ```
 
+```ts
+// The CdvPurchase namespace is available globally after plugin install
+const store = CdvPurchase.store;
+```
 
-### Recommended plugins
+### Recommended Cordova plugins
 
 <details>
 <summary>
@@ -71,30 +92,6 @@ ionic 3 doesn't support recent typescript notations, but the plugin can be used 
 
 ```ts
 declare var CdvPurchase: any
-```
-
-### Note for Capacitor users
-
-Capacitor users can install the latest version of the plugin without the help of the awesome-cordova-plugins wrapper. Just install the `cordova-plugin-purchase` module and `import "cordova-plugin-purchase"` in files where it's needed. (some user reported using `import "cordova-plugin-purchase/www/store.d"` to get it working).
-
-As with other plugins, you should wait for Capacitor `this.platform.ready()` before using the plugin.
-
-```ts
-import 'cordova-plugin-purchase';
-
-@Injectable()
-export class AppStoreService {
-
-  // DO NOT initialize to CdvPurchase.store here
-  store?: CdvPurchase.Store;
-
-  constructor() {
-    this.platform.ready().then(() => {
-      // MUST WAIT for Cordova to initialize before referencing CdvPurchase namespace
-      this.store = CdvPurchase.store
-    });
-  }
-}
 ```
 
 ### Setup your Application

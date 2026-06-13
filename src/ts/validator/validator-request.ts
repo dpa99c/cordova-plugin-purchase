@@ -49,6 +49,15 @@ namespace CdvPurchase {
                      *
                      * @optional */
                     applicationUsername?: string | number;
+
+                    /**
+                     * The obfuscated form of `applicationUsername`, derived by applying
+                     * `store.obfuscator`. The server can use this to correlate obfuscated
+                     * IDs from Apple/Google server notifications (e.g. `appAccountToken`,
+                     * `obfuscatedExternalAccountId`) with the original user.
+                     *
+                     * @optional */
+                    obfuscatedUsername?: string;
                 };
 
                 /** Microsoft license information */
@@ -89,8 +98,8 @@ namespace CdvPurchase {
                 /** Metadata about the user's device */
                 device?: CdvPurchase.Validator.DeviceInfo;
 
-                /** List of products available in the store */
-                products: {
+                /** List of products available in the store. Included at most once per day. */
+                products?: {
                     /** Type of product (subscription, consumable, etc.) */
                     type: ProductType;
 

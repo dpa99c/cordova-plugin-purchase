@@ -16,6 +16,12 @@ static BOOL g_initialized = NO;
 static BOOL g_debugEnabled = NO;
 static BOOL g_autoFinishEnabled = NO;
 
+// YES once pluginInitialize detected StoreKit2Plugin on iOS 15+ and skipped SK1 init.
+static BOOL g_stoodDown = NO;
+
+// YES once _ensureInitialized has run (either eagerly from pluginInitialize or lazily from setup:).
+static BOOL g_lazyInitialized = NO;
+
 /*
  * Helpers
  */
@@ -66,6 +72,7 @@ static BOOL g_autoFinishEnabled = NO;
 #define ERR_INVALID_OFFER_PRICE               (ERROR_CODES_BASE + 30)
 #define ERR_INVALID_SIGNATURE                 (ERROR_CODES_BASE + 31)
 #define ERR_MISSING_OFFER_PARAMS              (ERROR_CODES_BASE + 32)
+#define ERR_STORE_BLOCKED                     (ERROR_CODES_BASE + 33) // Android-only
 
 static NSInteger jsErrorCode(NSInteger storeKitErrorCode) {
     switch (storeKitErrorCode) {
@@ -108,6 +115,7 @@ static NSInteger jsErrorCode(NSInteger storeKitErrorCode) {
             return ERR_PRODUCT_NOT_AVAILABLE;
     }
 #endif
+    // Note: ERR_STORE_BLOCKED (ERROR_CODES_BASE + 33) has no StoreKit mapping — it's Android-only.
     return ERR_UNKNOWN;
 }
 
@@ -131,6 +139,7 @@ static NSString *jsErrorCodeAsString(NSInteger code) {
         if (code == ERR_INVALID_OFFER_PRICE) return @"ERR_INVALID_OFFER_PRICE";
         if (code == ERR_INVALID_SIGNATURE) return @"ERR_INVALID_SIGNATURE";
         if (code == ERR_MISSING_OFFER_PARAMS) return @"ERR_MISSING_OFFER_PARAMS";
+        if (code == ERR_STORE_BLOCKED) return @"ERR_STORE_BLOCKED";
     }
 #if TARGET_OS_IPHONE
     if (@available(iOS 9.3, *)) {
@@ -252,8 +261,11 @@ static NSString *dateToString(NSDate* date) {
 @synthesize pendingTransactionUpdates;
 @synthesize verifier;
 
-// Initialize the plugin state
--(void) pluginInitialize {
+// Idempotent initialization of plugin state + SK1 transaction observer.
+// Called eagerly from pluginInitialize, or lazily from setup: if pluginInitialize
+// chose to stand down because StoreKit2Plugin was detected.
+-(void) _ensureInitialized {
+    if (g_lazyInitialized) return;
     self.retainer = [[NSMutableDictionary alloc] init];
     self.products = [[NSMutableDictionary alloc] init];
     self.pendingTransactionUpdates = [[NSMutableArray alloc] init];
@@ -265,11 +277,29 @@ static NSString *dateToString(NSDate* date) {
     
     if ([SKPaymentQueue canMakePayments]) {
         [[SKPaymentQueue defaultQueue] addTransactionObserver:self];
-        NSLog(@"[CdvPurchase.AppleAppStore.objc] Initialized.");
+        NSLog(@"[CdvPurchase.AppleAppStore.objc] Initialized%@.",
+              g_stoodDown ? @" (lazy, after SK2 stand-down)" : @"");
     }
     else {
         NSLog(@"[CdvPurchase.AppleAppStore.objc] Initialization failed: payments are disabled.");
     }
+    g_lazyInitialized = YES;
+}
+
+// Initialize the plugin state.
+// Stands down if the StoreKit2Plugin Swift plugin is installed and the device
+// runs iOS 15+: the SK2 bridge will own SKPaymentQueue interaction, and a
+// second SK1 observer would cause duplicate transaction delivery and conflicting
+// auto-finish behavior.
+-(void) pluginInitialize {
+    if (NSClassFromString(@"StoreKit2Plugin") != nil) {
+        if (@available(iOS 15.0, *)) {
+            g_stoodDown = YES;
+            NSLog(@"[CdvPurchase.AppleAppStore.objc] StoreKit2Plugin detected on iOS 15+, SK1 standing down.");
+            return;
+        }
+    }
+    [self _ensureInitialized];
 }
 
 // Reset the plugin state
@@ -285,7 +315,29 @@ static NSString *dateToString(NSDate* date) {
     g_autoFinishEnabled = YES;
 }
 
+-(void) getStorefront: (CDVInvokedUrlCommand*)command {
+    DLog(@"getStorefront");
+    if (@available(iOS 13.0, macOS 10.15, *)) {
+        SKStorefront *storefront = [[SKPaymentQueue defaultQueue] storefront];
+        if (storefront) {
+            NSString *countryCode = storefront.countryCode;
+            DLog(@"getStorefront: %@", countryCode);
+            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:countryCode];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+        } else {
+            DLog(@"getStorefront: storefront not available");
+            CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Storefront not available"];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+        }
+    } else {
+        DLog(@"getStorefront: not available (requires iOS 13.0+)");
+        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Storefront requires iOS 13.0+"];
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+    }
+}
+
 -(void) setup: (CDVInvokedUrlCommand*)command {
+    [self _ensureInitialized];
     CDVPluginResult* pluginResult = nil;
     g_initialized = YES;
 
@@ -561,6 +613,7 @@ static NSString *dateToString(NSDate* date) {
 #define PT_INDEX_ORIGINAL_TRANSACTION_IDENTIFIER 6
 #define PT_INDEX_TRANSACTION_DATE 7
 #define PT_INDEX_DISCOUNT_ID 8
+#define PT_INDEX_QUANTITY 9
         NSArray *callbackArgs = [NSArray arrayWithObjects:
             NILABLE(state),
             [NSNumber numberWithInteger:errorCode],
@@ -571,6 +624,7 @@ static NSString *dateToString(NSDate* date) {
             NILABLE(originalTransactionIdentifier),
             NILABLE(transactionDate),
             NILABLE(discountId),
+            [NSNumber numberWithInteger:transaction.payment.quantity],
             nil];
 
         if (g_initialized) {
@@ -625,6 +679,10 @@ static NSString *dateToString(NSDate* date) {
         NILABLE(transaction.transactionIdentifier),
         NILABLE(transaction.payment.productIdentifier),
         NILABLE(nil),
+        NILABLE(nil),
+        NILABLE(nil),
+        NILABLE(nil),
+        [NSNumber numberWithInteger:transaction.payment.quantity],
         nil];
     NSString *js = [NSString
         stringWithFormat:@"window.storekit.transactionUpdated.apply(window.storekit, %@)",

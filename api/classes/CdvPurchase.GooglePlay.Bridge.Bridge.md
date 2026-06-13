@@ -2,6 +2,14 @@
 
 [GooglePlay](../modules/CdvPurchase.GooglePlay.md).[Bridge](../modules/CdvPurchase.GooglePlay.Bridge.md).Bridge
 
+Shared interface for Google Play bridge implementations.
+Both Cordova and Capacitor bridges implement this interface.
+The adapter programs against this interface, not a concrete class.
+
+## Implements
+
+- [`BridgeInterface`](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md)
+
 ## Table of contents
 
 ### Constructors
@@ -19,6 +27,7 @@
 - [consumePurchase](CdvPurchase.GooglePlay.Bridge.Bridge.md#consumepurchase)
 - [getAvailableProducts](CdvPurchase.GooglePlay.Bridge.Bridge.md#getavailableproducts)
 - [getPurchases](CdvPurchase.GooglePlay.Bridge.Bridge.md#getpurchases)
+- [getStorefront](CdvPurchase.GooglePlay.Bridge.Bridge.md#getstorefront)
 - [init](CdvPurchase.GooglePlay.Bridge.Bridge.md#init)
 - [launchPriceChangeConfirmationFlow](CdvPurchase.GooglePlay.Bridge.Bridge.md#launchpricechangeconfirmationflow)
 - [listener](CdvPurchase.GooglePlay.Bridge.Bridge.md#listener)
@@ -43,6 +52,10 @@
 
 • **options**: [`Options`](../interfaces/CdvPurchase.GooglePlay.Bridge.Options.md) = `{}`
 
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[options](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#options)
+
 ## Methods
 
 ### acknowledgePurchase
@@ -60,6 +73,10 @@
 #### Returns
 
 `void`
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[acknowledgePurchase](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#acknowledgepurchase)
 
 ___
 
@@ -80,6 +97,10 @@ ___
 
 `void`
 
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[buy](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#buy)
+
 ___
 
 ### consumePurchase
@@ -97,6 +118,10 @@ ___
 #### Returns
 
 `void`
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[consumePurchase](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#consumepurchase)
 
 ___
 
@@ -117,6 +142,10 @@ ___
 
 `void`
 
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[getAvailableProducts](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#getavailableproducts)
+
 ___
 
 ### getPurchases
@@ -133,6 +162,31 @@ ___
 #### Returns
 
 `void`
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[getPurchases](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#getpurchases)
+
+___
+
+### getStorefront
+
+▸ **getStorefront**(`success`, `fail`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `success` | (`countryCode`: `string`) => `void` |
+| `fail` | [`ErrorCallback`](../modules/CdvPurchase.GooglePlay.Bridge.md#errorcallback) |
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[getStorefront](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#getstorefront)
 
 ___
 
@@ -152,6 +206,10 @@ ___
 
 `void`
 
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[init](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#init)
+
 ___
 
 ### launchPriceChangeConfirmationFlow
@@ -167,6 +225,10 @@ ___
 #### Returns
 
 `void`
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[launchPriceChangeConfirmationFlow](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#launchpricechangeconfirmationflow)
 
 ___
 
@@ -204,6 +266,10 @@ ___
 
 `void`
 
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[load](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#load)
+
 ___
 
 ### manageBilling
@@ -214,6 +280,10 @@ ___
 
 `void`
 
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[manageBilling](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#managebilling)
+
 ___
 
 ### manageSubscriptions
@@ -223,6 +293,10 @@ ___
 #### Returns
 
 `void`
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[manageSubscriptions](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#managesubscriptions)
 
 ___
 
@@ -242,3 +316,7 @@ ___
 #### Returns
 
 `void`
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md).[subscribe](../interfaces/CdvPurchase.GooglePlay.Bridge.BridgeInterface.md#subscribe)

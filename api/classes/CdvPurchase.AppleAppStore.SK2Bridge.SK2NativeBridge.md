@@ -20,6 +20,7 @@ The adapter programs against this interface, not a concrete class.
 - [appStoreReceipt](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#appstorereceipt)
 - [isSK2](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#issk2)
 - [options](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#options)
+- [pendingTransactionsReady](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#pendingtransactionsready)
 - [transactionsForProduct](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#transactionsforproduct)
 
 ### Methods
@@ -27,6 +28,7 @@ The adapter programs against this interface, not a concrete class.
 - [canMakePayments](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#canmakepayments)
 - [finalizeTransactionUpdates](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#finalizetransactionupdates)
 - [finish](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#finish)
+- [getStorefront](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#getstorefront)
 - [init](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#init)
 - [lastTransactionUpdated](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#lasttransactionupdated)
 - [load](CdvPurchase.AppleAppStore.SK2Bridge.SK2NativeBridge.md#load)
@@ -83,6 +85,18 @@ ___
 ### options
 
 • **options**: [`SK2BridgeCallbacks`](../interfaces/CdvPurchase.AppleAppStore.SK2Bridge.SK2BridgeCallbacks.md)
+
+___
+
+### pendingTransactionsReady
+
+• `Optional` **pendingTransactionsReady**: `Promise`\<`void`\>
+
+Resolves when pending transactions from the native queue have been processed
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md).[pendingTransactionsReady](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#pendingtransactionsready)
 
 ___
 
@@ -152,6 +166,22 @@ ___
 #### Implementation of
 
 [BridgeInterface](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md).[finish](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#finish)
+
+___
+
+### getStorefront
+
+▸ **getStorefront**(): `Promise`\<`undefined` \| `string`\>
+
+Retrieve the storefront country code from StoreKit
+
+#### Returns
+
+`Promise`\<`undefined` \| `string`\>
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md).[getStorefront](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#getstorefront)
 
 ___
 
@@ -410,7 +440,7 @@ ___
 
 ### transactionUpdated
 
-▸ **transactionUpdated**(`state`, `errorCode`, `errorText`, `transactionIdentifier`, `productId`, `transactionReceipt`, `originalTransactionIdentifier`, `transactionDate`, `discountId`, `expirationDate?`, `jwsRepresentation?`): `void`
+▸ **transactionUpdated**(`state`, `errorCode`, `errorText`, `transactionIdentifier`, `productId`, `transactionReceipt`, `originalTransactionIdentifier`, `transactionDate`, `discountId`, `expirationDate?`, `jwsRepresentation?`, `quantity?`): `void`
 
 Called from native. Same as SK1 but with extra SK2 fields.
 
@@ -429,6 +459,7 @@ Called from native. Same as SK1 but with extra SK2 fields.
 | `discountId` | `undefined` \| `string` |
 | `expirationDate?` | `string` |
 | `jwsRepresentation?` | `string` |
+| `quantity?` | `number` |
 
 #### Returns
 

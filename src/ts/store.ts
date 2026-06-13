@@ -4,6 +4,7 @@
 /// <reference path="validator/validator.ts" />
 /// <reference path="log.ts" />
 /// <reference path="internal/adapters.ts" />
+/// <reference path="internal/storefronts.ts" />
 /// <reference path="internal/adapter-listener.ts" />
 /// <reference path="internal/callbacks.ts" />
 /// <reference path="internal/ready.ts" />
@@ -11,6 +12,7 @@
 /// <reference path="internal/transaction-monitor.ts" />
 /// <reference path="internal/receipts-monitor.ts" />
 /// <reference path="internal/expiry-monitor.ts" />
+/// <reference path="utils/to-uuid.ts" />
 
 /**
  * Namespace for the cordova-plugin-purchase plugin.
@@ -45,7 +47,7 @@ namespace CdvPurchase {
     /**
      * Current release number of the plugin.
      */
-    export const PLUGIN_VERSION = '13.13.1';
+    export const PLUGIN_VERSION = '13.17.0';
 
     /**
      * Entry class of the plugin.
@@ -96,8 +98,15 @@ namespace CdvPurchase {
         /**
          * Return the identifier of the user for your application.
          *
-         * **Note:** Apple AppStore requires an UUIDv4 if you want it to appear as the "appAccountToken" in
-         * the transaction data.
+         * This value is obfuscated according to {@link Store.obfuscator} before being
+         * sent to the native platform API. The default obfuscator (`'legacy'`) hashes
+         * or formats the value so the original username is never transmitted in cleartext.
+         *
+         * For Apple's App Store, the obfuscated value is used as `appAccountToken`
+         * (which must be a valid UUID when using StoreKit 2).
+         *
+         * You can also pass it per-transaction via `additionalData.applicationUsername`
+         * in `store.order()` or `store.requestPayment()`, which takes priority.
          */
         public applicationUsername?: string | (() => string | undefined);
 
@@ -107,6 +116,59 @@ namespace CdvPurchase {
         getApplicationUsername(): string | undefined {
             if (this.applicationUsername instanceof Function) return this.applicationUsername();
             return this.applicationUsername;
+        }
+
+        /**
+         * Obfuscation strategy for the application username.
+         *
+         * Controls how `applicationUsername` is transformed before being sent
+         * to each platform's native API. `'uuid'` is the recommended setting
+         * for new integrations; the default `'legacy'` exists only for
+         * backward compatibility with server-side modules that already
+         * correlate against the raw 32-hex MD5 value.
+         *
+         * @default 'legacy'
+         * @see {@link Obfuscator}
+         */
+        public obfuscator?: CdvPurchase.Obfuscator;
+
+        /** @internal Tracks whether the info notice for 'legacy' has been emitted */
+        private _legacyObfuscatorNoticeEmitted: boolean = false;
+
+        /**
+         * Obfuscate the application username according to the configured obfuscation strategy.
+         *
+         * See {@link Obfuscator} for the per-mode output format.
+         *
+         * @internal
+         */
+        obfuscateUsername(applicationUsername: string, platform: CdvPurchase.Platform): string | undefined {
+            if (!applicationUsername) return undefined;
+
+            const obfuscator = this.obfuscator ?? 'legacy';
+
+            if (typeof obfuscator === 'function') {
+                return obfuscator(applicationUsername, platform);
+            }
+
+            switch (obfuscator) {
+                case 'disabled':
+                    return applicationUsername;
+                case 'uuid':
+                    return Utils.md5toUUID(applicationUsername);
+                case 'legacy':
+                default:
+                    if (!this._legacyObfuscatorNoticeEmitted) {
+                        this._legacyObfuscatorNoticeEmitted = true;
+                        this.log.info('store.obfuscator defaults to "legacy" for backward compatibility. New integrations should set store.obfuscator = "uuid". See https://github.com/j3k0/cordova-plugin-purchase/issues/1665');
+                    }
+                    if (platform === Platform.GOOGLE_PLAY) {
+                        // Backward-compatible: raw MD5 hash (32 hex chars, no dashes)
+                        return Utils.md5(applicationUsername);
+                    }
+                    // UUIDv3 format — valid for Apple appAccountToken (SK1 + SK2) and any other platform
+                    return Utils.md5toUUID(applicationUsername);
+            }
         }
 
         /**
@@ -194,6 +256,9 @@ namespace CdvPurchase {
         /** Callbacks for errors */
         private errorCallbacks = new Internal.Callbacks<IError>(this.log, 'error()');
 
+        /** Per-platform storefront cache and change notifications. */
+        private _storefronts = new Internal.Storefronts(this.log.child('Storefronts'));
+
         /** Internal implementation of the receipt validation service integration */
         private _validator: Internal.Validator;
 
@@ -213,11 +278,18 @@ namespace CdvPurchase {
                 finishedCallbacks: this.finishedCallbacks,
                 pendingCallbacks: this.pendingCallbacks,
                 receiptsReadyCallbacks: this.receiptsReadyCallbacks,
+                finishDuplicate: (transaction: Transaction) => {
+                    const adapter = this.adapters.findReady(transaction.platform);
+                    if (adapter) {
+                        adapter.finish(transaction);
+                    }
+                },
             }, this.log);
             this.transactionStateMonitors = new Internal.TransactionStateMonitors(this.when());
             this._validator = new Internal.Validator({
                 adapters: this.adapters,
                 getApplicationUsername: this.getApplicationUsername.bind(this),
+                obfuscateUsername: this.obfuscateUsername.bind(this),
                 get localReceipts() { return store.localReceipts; },
                 get validator() { return store.validator; },
                 get validator_privacy_policy() { return store.validator_privacy_policy; },
@@ -317,9 +389,12 @@ namespace CdvPurchase {
                 error: this.triggerError.bind(this),
                 get verbosity() { return store.verbosity; },
                 getApplicationUsername() { return store.getApplicationUsername() },
+                obfuscateUsername: (username: string, platform: CdvPurchase.Platform) => store.obfuscateUsername(username, platform),
+                get obfuscator() { return store.obfuscator; },
                 get listener() { return store.listener; },
                 get log() { return store.log; },
                 get registeredProducts() { return store.registeredProducts; },
+                get storefronts() { return store._storefronts; },
                 apiDecorators: {
                     canPurchase: this.canPurchase.bind(this),
                     owned: this.owned.bind(this),
@@ -367,10 +442,14 @@ namespace CdvPurchase {
             this.lastUpdate = now;
             // Load products metadata
             for (const registration of this.registeredProducts.byPlatform()) {
-                const products = await this.adapters.findReady(registration.platform)?.loadProducts(registration.products);
+                const adapter = this.adapters.findReady(registration.platform);
+                const products = await adapter?.loadProducts(registration.products);
                 products?.forEach(p => {
                     if (p instanceof Product) this.updatedCallbacks.trigger(p, 'update_has_loaded_products');
                 });
+                if (adapter) {
+                    this._storefronts.refreshWith(adapter).catch(() => { /* tolerated */ });
+                }
             }
         }
 
@@ -424,6 +503,8 @@ namespace CdvPurchase {
                 unverified: (cb: Callback<UnverifiedReceipt>, callbackName?: string) => (this.unverifiedCallbacks.push(cb, callbackName), ret),
                 receiptsReady: (cb: Callback<void>, callbackName?: string) => (this.receiptsReadyCallbacks.push(cb, callbackName), ret),
                 receiptsVerified: (cb: Callback<void>, callbackName?: string) => (this.receiptsVerifiedCallbacks.push(cb, callbackName), ret),
+                storefrontUpdated: (cb: Callback<Storefront>, callbackName?: string) =>
+                    (this._storefronts.listen(cb, callbackName), ret),
             };
             return ret;
         }
@@ -443,6 +524,7 @@ namespace CdvPurchase {
             this.receiptsVerifiedCallbacks.remove(callback as any);
             this.errorCallbacks.remove(callback as any);
             this._readyCallbacks.remove(callback as any);
+            this._storefronts.off(callback as any);
         }
 
         /**
@@ -567,6 +649,8 @@ namespace CdvPurchase {
             if (!adapter) return storeError(ErrorCode.PAYMENT_NOT_ALLOWED, 'Adapter not found or not ready (' + offer.platform + ')', offer.platform, null);
             const ret = await adapter.order(offer, additionalData || {});
             if (ret && 'isError' in ret) store.triggerError(ret);
+            // Account may have switched during checkout — refresh storefront in the background.
+            this._storefronts.refreshWith(adapter).catch(() => { /* tolerated */ });
             return ret;
         }
 
@@ -626,6 +710,7 @@ namespace CdvPurchase {
 
             const promise = new PaymentRequestPromise();
             adapter.requestPayment(paymentRequest, additionalData).then(result => {
+                this._storefronts.refreshWith(adapter).catch(() => { /* tolerated */ });
                 promise.trigger(result);
                 if (result instanceof Transaction) {
                     const onStateChange = (state: TransactionState) => {
@@ -731,6 +816,8 @@ namespace CdvPurchase {
             for (const adapter of this.adapters.list) {
                 if (adapter.ready) {
                     error = error ?? await adapter.restorePurchases();
+                    // Restore often implies a login or account switch — refresh storefront.
+                    this._storefronts.refreshWith(adapter).catch(() => { /* tolerated */ });
                 }
             }
             return error;
@@ -768,6 +855,41 @@ namespace CdvPurchase {
             const adapter = this.adapters.findReady(platform);
             if (!adapter) return storeError(ErrorCode.SETUP, "Found no adapter ready to handle 'manageBilling'", platform ?? null, null);
             return adapter.manageBilling();
+        }
+
+        /**
+         * Retrieve the billing country code from the platform's storefront.
+         *
+         * Returns a `Storefront` object with the platform and its ISO 3166-1
+         * alpha-2 country code (e.g., "US", "FR"). The country code may be
+         * undefined if the underlying fetch has not yet completed or failed —
+         * the platform is still reported. Returns `undefined` only when no
+         * matching adapter is ready.
+         *
+         * The cache is populated before the `storeReady` event fires (with a
+         * best-effort timeout), and refreshed after orders and `restorePurchases()`.
+         *
+         * @param platform - Optional platform. If omitted, returns the first
+         *                   cached non-empty storefront, or a `{ platform, countryCode: undefined }`
+         *                   object for the first ready adapter.
+         *
+         * @example
+         * const storefront = store.getStorefront();
+         * if (storefront?.countryCode) {
+         *     console.log(`Billing country: ${storefront.countryCode}`);
+         * }
+         */
+        getStorefront(platform?: Platform): Storefront | undefined {
+            if (platform) {
+                const adapter = this.adapters.findReady(platform);
+                if (!adapter) return undefined;
+                return this._storefronts.getValueFor(platform);
+            }
+            const cached = this._storefronts.getValueFor();
+            if (cached) return cached;
+            const firstReady = this.adapters.findReady();
+            if (!firstReady) return undefined;
+            return { platform: firstReady.id, countryCode: undefined };
         }
 
         /**

@@ -59,7 +59,9 @@ namespace CdvPurchase {
             /**
              * Obfuscated user account identifier
              *
-             * Default to md5(store.applicationUsername)
+             * Populated by the adapter using `store.obfuscateUsername()`.
+             * Format depends on `store.obfuscator` setting.
+             * @see {@link CdvPurchase.Store.obfuscator}
              */
             accountId?: string;
 
@@ -158,7 +160,7 @@ namespace CdvPurchase {
                 /** String in JSON format that contains details about the purchase order. */
                 receipt: string;
 
-                /** Obfuscated account id specified at purchase - by default md5(applicationUsername) */
+                /** Obfuscated account id specified at purchase. Format depends on `store.obfuscator`. */
                 accountId: string;
 
                 /** Obfuscated profile id specified at purchase - used when a single user can have multiple profiles */
@@ -189,7 +191,7 @@ namespace CdvPurchase {
                 data: { purchase: Purchase; }
             };
 
-            export class Bridge {
+            export class Bridge implements BridgeInterface {
 
                 options: Options = {};
 
@@ -325,6 +327,13 @@ namespace CdvPurchase {
                     return window.cordova.exec(function () { }, function () { }, "InAppBillingPlugin", "manageBilling", []);
                 }
 
+                getStorefront(success: (countryCode: string) => void, fail: ErrorCallback) {
+                    if (this.options.showLog) {
+                        log('getStorefront()');
+                    }
+                    return window.cordova.exec(success, errorCb(fail), "InAppBillingPlugin", "getStorefront", []);
+                }
+
                 launchPriceChangeConfirmationFlow(productId: string) {
                     return window.cordova.exec(function () { }, function () { }, "InAppBillingPlugin", "launchPriceChangeConfirmationFlow", [productId]);
                 }
@@ -359,11 +368,7 @@ namespace CdvPurchase {
             }
 
             function extendAdditionalData(ad?: CdvPurchase.AdditionalData): AdditionalData {
-                const additionalData: AdditionalData = ensureObject(ad?.googlePlay);
-                if (!additionalData.accountId && ad?.applicationUsername) {
-                    additionalData.accountId = Utils.md5(ad.applicationUsername);
-                }
-                return additionalData;
+                return ensureObject(ad?.googlePlay);
             }
         }
     }

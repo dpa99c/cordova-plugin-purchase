@@ -17,6 +17,7 @@ Data to attach to a transaction.
 - [applicationUsername](CdvPurchase.AdditionalData.md#applicationusername)
 - [braintree](CdvPurchase.AdditionalData.md#braintree)
 - [googlePlay](CdvPurchase.AdditionalData.md#googleplay)
+- [quantity](CdvPurchase.AdditionalData.md#quantity)
 
 ## Properties
 
@@ -32,7 +33,16 @@ ___
 
 • `Optional` **applicationUsername**: `string`
 
-The application's user identifier, will be obfuscated with md5 to fill `accountId` if necessary
+The application's user identifier.
+
+**`Deprecated`**
+
+Set [Store.applicationUsername](../classes/CdvPurchase.Store.md#applicationusername) instead. The
+per-transaction value is ignored — adapters always read the
+store-level username so receipt validation later (which doesn't
+have access to the original additionalData) sees the same value
+that was sent to the native API at purchase time. Passing this
+field logs a one-shot notice.
 
 ___
 
@@ -49,3 +59,18 @@ ___
 • `Optional` **googlePlay**: [`AdditionalData`](CdvPurchase.GooglePlay.AdditionalData.md)
 
 GooglePlay specific additional data
+
+___
+
+### quantity
+
+• `Optional` **quantity**: `number`
+
+Quantity of items to purchase.
+
+Only supported on platforms that report the `'orderQuantity'` capability.
+Platforms without support will ignore this field.
+
+**`See`**
+
+[Store.checkSupport](../classes/CdvPurchase.Store.md#checksupport)

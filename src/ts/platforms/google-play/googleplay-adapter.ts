@@ -122,7 +122,9 @@ namespace CdvPurchase {
             private _receipts: Receipt[] = [];
 
             /** The GooglePlay bridge */
-            bridge = new Bridge.Bridge();
+            bridge: Bridge.BridgeInterface = Bridge.CapacitorBridge.isAvailable()
+                ? new Bridge.CapacitorBridge()
+                : new Bridge.Bridge();
 
             /** Prevent double initialization */
             initialized = false;
@@ -182,8 +184,17 @@ namespace CdvPurchase {
                         resolve(undefined);
                     }
 
-                    const iabError = (err: string) => {
+                    const iabError = (err: string, code?: number) => {
                         this.initialized = false;
+                        // `Number(code)` normalizes both Cordova (numeric) and Capacitor (string) error codes.
+                        if (Number(code) === ErrorCode.STORE_BLOCKED) {
+                            // The Play Store is blocked by OEM restrictions; it won't unblock,
+                            // so report the error and resolve without retrying.
+                            const error = playStoreError(ErrorCode.STORE_BLOCKED, "Init failed - " + err, null);
+                            this.context.error(error);
+                            resolve(error);
+                            return;
+                        }
                         this.context.error(playStoreError(ErrorCode.SETUP, "Init failed - " + err, null));
                         this.retry.retry(() => this.initialize());
                     }
@@ -476,11 +487,20 @@ namespace CdvPurchase {
 
             /** @inheritDoc */
             async order(offer: GOffer, additionalData: CdvPurchase.AdditionalData): Promise<IError | undefined> {
+                warnIfDeprecatedAdditionalUsername(this.log, additionalData);
+                additionalData = withObfuscatedAccountId(additionalData, this.context);
                 return new Promise(resolve => {
                     this.log.info("Order - " + JSON.stringify(offer));
                     const buySuccess = () => resolve(undefined);
                     const buyFailed = (message: string, code?: ErrorCode): void => {
                         this.log.warn('Order failed: ' + JSON.stringify({message, code}));
+                        // `Number(code)` normalizes both Cordova (numeric) and Capacitor (string) error codes.
+                        if (Number(code) === ErrorCode.STORE_BLOCKED) {
+                            // The Play Store is blocked by OEM restrictions; resolve with the
+                            // blocked-store error immediately.
+                            resolve(playStoreError(ErrorCode.STORE_BLOCKED, message, offer.productId));
+                            return;
+                        }
                         resolve(playStoreError(code ?? ErrorCode.UNKNOWN, message, offer.productId));
                     };
                     if (offer.productType === ProductType.PAID_SUBSCRIPTION) {
@@ -497,7 +517,8 @@ namespace CdvPurchase {
                         this.bridge.subscribe(buySuccess, buyFailed, idAndToken, additionalData);
                     }
                     else {
-                        this.bridge.buy(buySuccess, buyFailed, offer.productId, additionalData);
+                        const idAndToken = 'token' in offer && offer.token ? offer.productId + '@' + offer.token : offer.productId;
+                        this.bridge.buy(buySuccess, buyFailed, idAndToken, additionalData);
                     }
                 });
             }
@@ -585,9 +606,20 @@ namespace CdvPurchase {
                 return;
             }
 
+            async getStorefront(): Promise<string | undefined> {
+                return new Promise((resolve) => {
+                    this.bridge.getStorefront((countryCode: string) => {
+                        resolve(countryCode || undefined);
+                    }, (message: string) => {
+                        this.log.warn('getStorefront failed: ' + message);
+                        resolve(undefined);
+                    });
+                });
+            }
+
             checkSupport(functionality: PlatformFunctionality): boolean {
                 const supported: PlatformFunctionality[] = [
-                    'order', 'manageBilling', 'manageSubscriptions'
+                    'order', 'manageBilling', 'manageSubscriptions', 'getStorefront'
                 ];
                 return supported.indexOf(functionality) >= 0;
             }
@@ -600,6 +632,32 @@ namespace CdvPurchase {
                     });
                 });
             }
+        }
+
+        let deprecatedAdditionalUsernameNoticed = false;
+        function warnIfDeprecatedAdditionalUsername(log: Logger, additionalData: CdvPurchase.AdditionalData | undefined) {
+            // Bracket access avoids the @deprecated read warning on the field.
+            if (!additionalData || !(additionalData as { [k: string]: any })['applicationUsername']) return;
+            if (deprecatedAdditionalUsernameNoticed) return;
+            deprecatedAdditionalUsernameNoticed = true;
+            log.warn('additionalData.applicationUsername is deprecated and ignored. Set store.applicationUsername instead.');
+        }
+
+        /**
+         * Return a copy of `additionalData` with `googlePlay.accountId` populated
+         * from `store.applicationUsername` (via the configured obfuscator) when
+         * not already provided by the caller. Never mutates the input.
+         */
+        function withObfuscatedAccountId(additionalData: CdvPurchase.AdditionalData | undefined, context: Internal.AdapterContext): CdvPurchase.AdditionalData {
+            const next: CdvPurchase.AdditionalData = { ...(additionalData ?? {}) };
+            next.googlePlay = { ...(additionalData?.googlePlay ?? {}) };
+            if (!next.googlePlay.accountId) {
+                const username = context.getApplicationUsername();
+                if (username) {
+                    next.googlePlay.accountId = context.obfuscateUsername(username, Platform.GOOGLE_PLAY);
+                }
+            }
+            return next;
         }
 
         function playStoreError(code: ErrorCode, message: string, productId: string | null) {

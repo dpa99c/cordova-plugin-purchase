@@ -20,6 +20,8 @@ namespace CdvPurchase {
                 transactionsForProduct: { [productId: string]: string[] };
                 /** Whether this bridge uses StoreKit 2 */
                 readonly isSK2?: boolean;
+                /** Resolves when pending transactions from the native queue have been processed */
+                pendingTransactionsReady?: Promise<void>;
 
                 init(options: Partial<BridgeOptions>, success: () => void,
                      error: (code: ErrorCode, message: string) => void): void;
@@ -42,6 +44,8 @@ namespace CdvPurchase {
                                 errorCb: (code: ErrorCode, message: string) => void): void;
                 loadReceipts(callback: (receipt: ApplicationReceipt) => void,
                              errorCb: (code: ErrorCode, message: string) => void): void;
+                /** Retrieve the storefront country code (alpha-3 on iOS) */
+                getStorefront?(): Promise<string | undefined>;
             }
         }
     }

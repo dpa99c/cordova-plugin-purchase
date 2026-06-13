@@ -263,6 +263,9 @@ public final class PurchasePlugin
         Intent browserIntent = new Intent(Intent.ACTION_VIEW,
             Uri.parse("http://play.google.com/store/account/subscriptions"));
         cordova.getActivity().startActivity(browserIntent);
+      } else if ("getStorefront".equals(action)) {
+        getStorefront(callbackContext);
+        return true;
       } else {
         // No handler for the action
         isValidAction = false;
@@ -275,6 +278,38 @@ public final class PurchasePlugin
 
     // Method not found
     return isValidAction;
+  }
+
+  /**
+   * Retrieves the user's Play Store billing country code.
+   *
+   * Uses BillingClient.getBillingConfigAsync() to obtain the country
+   * code as ISO 3166-1 alpha-2 (e.g., "US", "FR").
+   */
+  private void getStorefront(final CallbackContext callbackContext) {
+    Log.d(mTag, "getStorefront()");
+    executeServiceRequest(() -> {
+      com.android.billingclient.api.GetBillingConfigParams params =
+          com.android.billingclient.api.GetBillingConfigParams.newBuilder().build();
+      mBillingClient.getBillingConfigAsync(params,
+          new com.android.billingclient.api.BillingConfigResponseListener() {
+            @Override
+            public void onBillingConfigResponse(
+                BillingResult billingResult,
+                com.android.billingclient.api.BillingConfig billingConfig) {
+              if (billingResult.getResponseCode() == BillingResponseCode.OK
+                  && billingConfig != null) {
+                String countryCode = billingConfig.getCountryCode();
+                Log.d(mTag, "getStorefront() -> " + countryCode);
+                callbackContext.success(countryCode);
+              } else {
+                Log.d(mTag, "getStorefront() -> Failed: " + format(billingResult));
+                callbackContext.error("Failed to get billing config: "
+                    + format(billingResult));
+              }
+            }
+          });
+    });
   }
 
   private String getPublicKey() {
@@ -327,7 +362,11 @@ public final class PurchasePlugin
       }
     }, () -> {
         Log.d(mTag, "init() -> Failure: " + format(getLastResult()));
-        callError(Constants.ERR_SETUP, "Setup failure. " + format(getLastResult()));
+        if (isPlayStoreBlocked(getLastResult())) {
+          callError(Constants.ERR_STORE_BLOCKED, "Play Store is blocked on this device");
+        } else {
+          callError(Constants.ERR_SETUP, "Setup failure. " + format(getLastResult()));
+        }
     });
   }
 
@@ -341,9 +380,8 @@ public final class PurchasePlugin
           final List<Purchase> purchases) {
     try {
       if (result.getResponseCode() == BillingResponseCode.OK) {
-        for (Purchase p : purchases) {
-          mPurchases.add(0, p);
-        }
+        mPurchases.clear();
+        mPurchases.addAll(purchases);
         sendToListener("setPurchases", new JSONObject()
             .put("purchases", toJSON(purchases)));
         callSuccess(toJSON(purchases));
@@ -376,8 +414,10 @@ public final class PurchasePlugin
       .put("developerPayload", p.getDeveloperPayload())
       .put("acknowledged", p.isAcknowledged())
       .put("autoRenewing", p.isAutoRenewing())
-      .put("accountId", p.getAccountIdentifiers().getObfuscatedAccountId())
-      .put("profileId", p.getAccountIdentifiers().getObfuscatedProfileId())
+      .put("accountId", p.getAccountIdentifiers() != null
+          ? p.getAccountIdentifiers().getObfuscatedAccountId() : null)
+      .put("profileId", p.getAccountIdentifiers() != null
+          ? p.getAccountIdentifiers().getObfuscatedProfileId() : null)
       .put("signature", p.getSignature())
       .put("receipt", p.getOriginalJson().toString())
       .put("quantity", p.getQuantity());
@@ -663,10 +703,14 @@ public final class PurchasePlugin
       else {
         Log.w(mTag, "onPurchasesUpdated() -> "
             + "Failed: " + format(result));
-        callError(Constants.ERR_PURCHASE, codeToString(code));
+        if (isPlayStoreBlocked(result)) {
+          callError(Constants.ERR_STORE_BLOCKED, "Play Store is blocked on this device");
+        } else {
+          callError(Constants.ERR_PURCHASE, codeToString(code));
+        }
       }
-    } catch (JSONException e) {
-      Log.w(mTag, "onPurchasesUpdated() -> JSONException "
+    } catch (Exception e) {
+      Log.w(mTag, "onPurchasesUpdated() -> Exception "
           + e.getMessage());
       callError(Constants.ERR_PURCHASE, e.getMessage());
     }
@@ -706,7 +750,7 @@ public final class PurchasePlugin
   private String codeToMessage(int code) {
     switch (code) {
       case BillingResponseCode.BILLING_UNAVAILABLE:
-        return "Billing API version is not supported for the type requested";
+        return "Billing is not available on this device";
       case BillingResponseCode.DEVELOPER_ERROR:
         return "Invalid arguments provided to the API";
       case BillingResponseCode.ERROR:
@@ -1367,6 +1411,19 @@ public final class PurchasePlugin
       ? result.getDebugMessage()
       : codeToMessage(code);
     return codeToString(code) + ": " + message;
+  }
+
+  /**
+   * Check if a BillingResult indicates that the Play Store is blocked
+   * on this device (OEM kids mode, parental controls, enterprise policies).
+   *
+   * <p>In GPBL V9, this condition was reclassified from ERROR to BILLING_UNAVAILABLE
+   * with a "Play Store is blocked" debug message.
+   */
+  private boolean isPlayStoreBlocked(final BillingResult result) {
+    return result.getResponseCode() == BillingResponseCode.BILLING_UNAVAILABLE
+      && result.getDebugMessage() != null
+      && result.getDebugMessage().contains("Play Store is blocked");
   }
 
   // Add new methods to handle callbacks with specific contexts
