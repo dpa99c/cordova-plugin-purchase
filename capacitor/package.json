@@ -25,7 +25,7 @@
     "@capacitor/core": "^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "devDependencies": {
-    "@capacitor/core": "^6.0.0",
+    "@capacitor/core": "^8.5.1",
     "rollup": "^4.0.0",
     "@rollup/plugin-node-resolve": "^16.0.0",
     "typescript": "^5.0.0"
