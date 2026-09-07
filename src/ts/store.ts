@@ -96,6 +96,34 @@ namespace CdvPurchase {
         public verbosity: LogLevel = LogLevel.ERROR;
 
         /**
+         * Register a callback for messages emitted by the native purchase bridge.
+         *
+         * Registering another callback replaces the previous callback. This is
+         * supported on Cordova iOS and Android only; on other platforms the
+         * callback is ignored.
+         *
+         * @param callback Function called with each native log message.
+         */
+        registerNativeLogCallback(callback: NativeLogCallback): void {
+            const platform = Utils.platformId();
+            const service = platform === 'ios' ? 'InAppPurchase'
+                : platform === 'android' ? 'InAppBillingPlugin' : undefined;
+            if (!service || !window.cordova?.exec) return;
+
+            window.cordova.exec((message?: NativeLogMessage) => {
+                if (!message || !message.level || typeof message.message !== 'string') return;
+                try {
+                    callback(message);
+                }
+                catch (error) {
+                    this.log.warn('Native log callback failed: ' + error);
+                }
+            }, (error: string) => {
+                this.log.warn('Failed to register native log callback: ' + error);
+            }, service, 'setLogListener', []);
+        }
+
+        /**
          * Return the identifier of the user for your application.
          *
          * This value is obfuscated according to {@link Store.obfuscator} before being
@@ -638,6 +666,29 @@ namespace CdvPurchase {
                 verifiedReceipts: this.validator ? this.verifiedReceipts : undefined,
                 localReceipts: this.localReceipts,
             });
+        }
+
+        /**
+         * Retrieve the raw cached App Store receipt as a base64 string.
+         *
+         * This is supported by the Cordova StoreKit 1 bridge only. The receipt
+         * is held in native memory and is not persisted by the plugin.
+         */
+        getAppStoreReceipt(): Promise<string | undefined> {
+            const adapter = this.adapters.find(Platform.APPLE_APPSTORE) as AppleAppStore.Adapter | undefined;
+            if (!adapter) return Promise.reject(new Error('Apple App Store adapter is not initialised'));
+            return adapter.getAppStoreReceipt();
+        }
+
+        /**
+         * Validate and cache a raw App Store receipt supplied as base64.
+         *
+         * This is supported by the Cordova StoreKit 1 bridge only.
+         */
+        setAppStoreReceipt(base64: string): Promise<void> {
+            const adapter = this.adapters.find(Platform.APPLE_APPSTORE) as AppleAppStore.Adapter | undefined;
+            if (!adapter) return Promise.reject(new Error('Apple App Store adapter is not initialised'));
+            return adapter.setAppStoreReceipt(base64);
         }
 
         /**

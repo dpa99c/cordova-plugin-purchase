@@ -556,6 +556,24 @@ namespace CdvPurchase {
                 });
             }
 
+            /** Retrieve the raw cached App Store receipt as base64. */
+            getAppStoreReceipt(): Promise<string | undefined> {
+                if (!this.bridge.getAppStoreReceipt) {
+                    return Promise.reject(new Error('Raw App Store receipts are not supported by this bridge'));
+                }
+                return this.bridge.getAppStoreReceipt();
+            }
+
+            /** Validate and replace the native raw App Store receipt cache. */
+            async setAppStoreReceipt(base64: string): Promise<void> {
+                if (!this.bridge.setAppStoreReceipt) {
+                    throw new Error('Raw App Store receipts are not supported by this bridge');
+                }
+                await this.bridge.setAppStoreReceipt(base64);
+                this._receipt = undefined;
+                this.forceReceiptReload = true;
+            }
+
             private async loadEligibility(validProducts: Bridge.ValidProduct[]): Promise<Internal.DiscountEligibilities> {
                 this.log.debug('load eligibility: ' + JSON.stringify(validProducts));
 

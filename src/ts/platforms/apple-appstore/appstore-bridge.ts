@@ -654,6 +654,23 @@ namespace CdvPurchase {
                     });
                 }
 
+                getAppStoreReceipt(): Promise<string | undefined> {
+                    return new Promise((resolve, reject) => {
+                        exec('getAppStoreReceipt', [], (base64?: string) => {
+                            resolve(base64 || undefined);
+                        }, reject);
+                    });
+                }
+
+                setAppStoreReceipt(base64: string): Promise<void> {
+                    return new Promise((resolve, reject) => {
+                        exec('setAppStoreReceipt', [base64], () => {
+                            this.appStoreReceipt = null;
+                            resolve();
+                        }, reject);
+                    });
+                }
+
                 loadReceipts(callback: (receipt: ApplicationReceipt) => void, errorCb: (code: ErrorCode, message: string) => void) {
 
                     const loaded = (args: RawReceiptArgs) => {

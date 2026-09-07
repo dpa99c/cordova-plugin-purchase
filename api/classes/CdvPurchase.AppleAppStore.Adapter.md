@@ -46,6 +46,7 @@ Adapter for Apple AppStore using StoreKit version 1
 - [addValidProducts](CdvPurchase.AppleAppStore.Adapter.md#addvalidproducts)
 - [checkSupport](CdvPurchase.AppleAppStore.Adapter.md#checksupport)
 - [finish](CdvPurchase.AppleAppStore.Adapter.md#finish)
+- [getAppStoreReceipt](CdvPurchase.AppleAppStore.Adapter.md#getappstorereceipt)
 - [getProduct](CdvPurchase.AppleAppStore.Adapter.md#getproduct)
 - [getStorefront](CdvPurchase.AppleAppStore.Adapter.md#getstorefront)
 - [handleReceiptValidationResponse](CdvPurchase.AppleAppStore.Adapter.md#handlereceiptvalidationresponse)
@@ -60,6 +61,7 @@ Adapter for Apple AppStore using StoreKit version 1
 - [refreshReceipt](CdvPurchase.AppleAppStore.Adapter.md#refreshreceipt)
 - [requestPayment](CdvPurchase.AppleAppStore.Adapter.md#requestpayment)
 - [restorePurchases](CdvPurchase.AppleAppStore.Adapter.md#restorepurchases)
+- [setAppStoreReceipt](CdvPurchase.AppleAppStore.Adapter.md#setappstorereceipt)
 
 ## Constructors
 
@@ -362,6 +364,18 @@ For consumable, this will acknowledge and consume the purchase.
 
 ___
 
+### getAppStoreReceipt
+
+▸ **getAppStoreReceipt**(): `Promise`\<`undefined` \| `string`\>
+
+Retrieve the raw cached App Store receipt as base64.
+
+#### Returns
+
+`Promise`\<`undefined` \| `string`\>
+
+___
+
 ### getProduct
 
 ▸ **getProduct**(`id`): `undefined` \| [`SKProduct`](CdvPurchase.AppleAppStore.SKProduct.md)
@@ -617,3 +631,21 @@ Might ask the user to login.
 #### Implementation of
 
 [Adapter](../interfaces/CdvPurchase.Adapter.md).[restorePurchases](../interfaces/CdvPurchase.Adapter.md#restorepurchases)
+
+___
+
+### setAppStoreReceipt
+
+▸ **setAppStoreReceipt**(`base64`): `Promise`\<`void`\>
+
+Validate and replace the native raw App Store receipt cache.
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `base64` | `string` |
+
+#### Returns
+
+`Promise`\<`void`\>

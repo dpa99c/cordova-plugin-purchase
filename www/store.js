@@ -679,7 +679,7 @@ var CdvPurchase;
                             body.additionalData.obfuscatedUsername = obfuscated;
                     }
                     // Add device information
-                    body.device = Object.assign(Object.assign({}, (_b = body.device) !== null && _b !== void 0 ? _b : {}), CdvPurchase.Validator.Internal.getDeviceInfo(this.controller));
+                    body.device = Object.assign(Object.assign({}, (_b = body.device) !== null && _b !== void 0 ? _b : {}), yield CdvPurchase.Validator.Internal.getDeviceInfo(this.controller));
                     // Add legacy pricing information
                     if (((_c = body.offers) === null || _c === void 0 ? void 0 : _c.length) === 1) {
                         const offer = body.offers[0];
@@ -1866,6 +1866,35 @@ var CdvPurchase;
             return this.adapters.find(platform);
         }
         /**
+         * Register a callback for messages emitted by the native purchase bridge.
+         *
+         * Registering another callback replaces the previous callback. This is
+         * supported on Cordova iOS and Android only; on other platforms the
+         * callback is ignored.
+         *
+         * @param callback Function called with each native log message.
+         */
+        registerNativeLogCallback(callback) {
+            var _a;
+            const platform = CdvPurchase.Utils.platformId();
+            const service = platform === 'ios' ? 'InAppPurchase'
+                : platform === 'android' ? 'InAppBillingPlugin' : undefined;
+            if (!service || !((_a = window.cordova) === null || _a === void 0 ? void 0 : _a.exec))
+                return;
+            window.cordova.exec((message) => {
+                if (!message || !message.level || typeof message.message !== 'string')
+                    return;
+                try {
+                    callback(message);
+                }
+                catch (error) {
+                    this.log.warn('Native log callback failed: ' + error);
+                }
+            }, (error) => {
+                this.log.warn('Failed to register native log callback: ' + error);
+            }, service, 'setLogListener', []);
+        }
+        /**
          * Get the application username as a string by either calling or returning {@link Store.applicationUsername}
         */
         getApplicationUsername() {
@@ -2192,6 +2221,29 @@ var CdvPurchase;
                 verifiedReceipts: this.validator ? this.verifiedReceipts : undefined,
                 localReceipts: this.localReceipts,
             });
+        }
+        /**
+         * Retrieve the raw cached App Store receipt as a base64 string.
+         *
+         * This is supported by the Cordova StoreKit 1 bridge only. The receipt
+         * is held in native memory and is not persisted by the plugin.
+         */
+        getAppStoreReceipt() {
+            const adapter = this.adapters.find(CdvPurchase.Platform.APPLE_APPSTORE);
+            if (!adapter)
+                return Promise.reject(new Error('Apple App Store adapter is not initialised'));
+            return adapter.getAppStoreReceipt();
+        }
+        /**
+         * Validate and cache a raw App Store receipt supplied as base64.
+         *
+         * This is supported by the Cordova StoreKit 1 bridge only.
+         */
+        setAppStoreReceipt(base64) {
+            const adapter = this.adapters.find(CdvPurchase.Platform.APPLE_APPSTORE);
+            if (!adapter)
+                return Promise.reject(new Error('Apple App Store adapter is not initialised'));
+            return adapter.setAppStoreReceipt(base64);
         }
         /**
          * Place an order for a given offer.
@@ -3616,6 +3668,24 @@ var CdvPurchase;
                     });
                 });
             }
+            /** Retrieve the raw cached App Store receipt as base64. */
+            getAppStoreReceipt() {
+                if (!this.bridge.getAppStoreReceipt) {
+                    return Promise.reject(new Error('Raw App Store receipts are not supported by this bridge'));
+                }
+                return this.bridge.getAppStoreReceipt();
+            }
+            /** Validate and replace the native raw App Store receipt cache. */
+            setAppStoreReceipt(base64) {
+                return __awaiter(this, void 0, void 0, function* () {
+                    if (!this.bridge.setAppStoreReceipt) {
+                        throw new Error('Raw App Store receipts are not supported by this bridge');
+                    }
+                    yield this.bridge.setAppStoreReceipt(base64);
+                    this._receipt = undefined;
+                    this.forceReceiptReload = true;
+                });
+            }
             loadEligibility(validProducts) {
                 return __awaiter(this, void 0, void 0, function* () {
                     this.log.debug('load eligibility: ' + JSON.stringify(validProducts));
@@ -4919,15 +4989,13 @@ var CdvPurchase;
                     const bundleShortVersion = args[2];
                     const bundleNumericVersion = args[3];
                     const bundleSignature = args[4];
-                    const payload = args[5];
                     log('infoPlist: ' + bundleIdentifier + "," + bundleShortVersion + "," + bundleNumericVersion + "," + bundleSignature);
                     return {
                         appStoreReceipt: base64,
                         bundleIdentifier: bundleIdentifier,
                         bundleShortVersion: bundleShortVersion,
                         bundleNumericVersion: bundleNumericVersion,
-                        bundleSignature: bundleSignature,
-                        payload: payload
+                        bundleSignature: bundleSignature
                     };
                 }
                 refreshReceipts(successCb, errorCb) {
@@ -4958,6 +5026,21 @@ var CdvPurchase;
                             log('getStorefront failed: ' + err);
                             resolve(undefined);
                         });
+                    });
+                }
+                getAppStoreReceipt() {
+                    return new Promise((resolve, reject) => {
+                        exec('getAppStoreReceipt', [], (base64) => {
+                            resolve(base64 || undefined);
+                        }, reject);
+                    });
+                }
+                setAppStoreReceipt(base64) {
+                    return new Promise((resolve, reject) => {
+                        exec('setAppStoreReceipt', [base64], () => {
+                            this.appStoreReceipt = null;
+                            resolve();
+                        }, reject);
                     });
                 }
                 loadReceipts(callback, errorCb) {
@@ -9176,78 +9259,123 @@ var CdvPurchase;
                 else // default: no tracking
                     return ['analytics', 'support', 'fraud'];
             }
-            function getDeviceInfo(store) {
-                const privacyPolicy = getPrivacyPolicy(store); // string[]
-                function allowed(policy) {
-                    return privacyPolicy.indexOf(policy) >= 0;
-                }
-                // Different versions of the plugin use different response fields.
-                // Sending this information allows the validator to reply with only expected information.
-                const ret = {
-                    plugin: 'cordova-plugin-purchase/' + CdvPurchase.PLUGIN_VERSION,
-                };
-                const wdw = window;
-                // the cordova-plugin-device global object
-                const device = isObject(wdw.device) ? wdw.device : {};
-                // Send the receipt validator information about the device.
-                // This will allow to make vendor or device specific fixes and detect class
-                // of devices with issues.
-                // Knowing running version of OS and libraries also required for handling
-                // support requests.
-                if (allowed('analytics') || allowed('support')) {
-                    // Version of ionic (if applicable)
-                    const ionic = wdw.Ionic || wdw.ionic;
-                    if (ionic && ionic.version)
-                        ret.ionic = ionic.version;
-                    // Information from the cordova-plugin-device (if installed)
-                    if (device.cordova)
-                        ret.cordova = device.cordova; // Version of cordova
-                    if (device.model)
-                        ret.model = device.model; // Device model
-                    if (device.platform)
-                        ret.platform = device.platform; // OS
-                    if (device.version)
-                        ret.version = device.version; // OS version
-                    if (device.manufacturer)
-                        ret.manufacturer = device.manufacturer; // Device manufacturer
-                }
-                // Device identifiers are used for tracking users across services
-                // It is sometimes required for support requests too, but I choose to
-                // keep this out.
-                if (allowed('tracking')) {
-                    if (device.serial)
-                        ret.serial = device.serial; // Hardware serial number
-                    if (device.uuid)
-                        ret.uuid = device.uuid; // Device UUID
-                }
-                // Running from a simulator is an error condition for in-app purchases.
-                // Since only developers run in a simulator, let's always report that.
-                if (device.isVirtual)
-                    ret.isVirtual = device.isVirtual; // Simulator
-                // Probably nobody wants to disable fraud discovery.
-                // A fingerprint of the device identifiers is used for fraud discovery.
-                // An alert should be triggered by the validator when a lot of devices
-                // share a single receipt.
-                if (allowed('fraud')) {
-                    // For fraud discovery, we only need a fingerprint of the device.
-                    var fingerprint = '';
-                    if (device.serial)
-                        fingerprint = 'serial:' + device.serial; // Hardware serial number
-                    else if (device.uuid)
-                        fingerprint = 'uuid:' + device.uuid; // Device UUID
-                    else {
-                        // Using only model and manufacturer, we might end-up with many
-                        // users sharing the same fingerprint, which is fine for fraud discovery.
-                        if (device.model)
-                            fingerprint += '/' + device.model;
-                        if (device.manufacturer)
-                            fingerprint = '/' + device.manufacturer;
+            /** Map @capacitor/device data to the cordova-plugin-device format.
+             *
+             * Used as a fallback when cordova-plugin-device isn't installed (typically
+             * in Capacitor apps). Detected through the plugin proxy that Capacitor
+             * registers at window.Capacitor.Plugins.Device, so the plugin doesn't
+             * need a dependency on @capacitor/device.
+             *
+             * @param includeId fetch the device identifier (requires user consent) */
+            function getCapacitorDevice(includeId) {
+                var _a, _b, _c;
+                return __awaiter(this, void 0, void 0, function* () {
+                    const capacitorDevice = (_b = (_a = window.Capacitor) === null || _a === void 0 ? void 0 : _a.Plugins) === null || _b === void 0 ? void 0 : _b.Device;
+                    if (!capacitorDevice)
+                        return {};
+                    const device = {};
+                    try {
+                        const info = yield capacitorDevice.getInfo();
+                        if (isObject(info)) {
+                            device.model = info.model;
+                            // match cordova-plugin-device casing ("iOS", "Android")
+                            device.platform = info.operatingSystem === 'ios' ? 'iOS'
+                                : info.operatingSystem === 'android' ? 'Android'
+                                    : info.operatingSystem;
+                            device.version = info.osVersion;
+                            device.manufacturer = info.manufacturer;
+                            device.isVirtual = info.isVirtual;
+                        }
                     }
-                    // Fingerprint is hashed to keep required level of privacy.
-                    if (fingerprint)
-                        ret.fingerprint = CdvPurchase.Utils.md5(fingerprint);
-                }
-                return ret;
+                    catch (e) { /* @capacitor/device not functional, skip device info */ }
+                    if (includeId) {
+                        try {
+                            const id = yield capacitorDevice.getId();
+                            // "identifier" since @capacitor/device v4, "uuid" before
+                            device.uuid = (_c = id === null || id === void 0 ? void 0 : id.identifier) !== null && _c !== void 0 ? _c : id === null || id === void 0 ? void 0 : id.uuid;
+                        }
+                        catch (e) { /* ignore, "uuid" stays undefined */ }
+                    }
+                    return device;
+                });
+            }
+            function getDeviceInfo(store) {
+                return __awaiter(this, void 0, void 0, function* () {
+                    const privacyPolicy = getPrivacyPolicy(store); // string[]
+                    function allowed(policy) {
+                        return privacyPolicy.indexOf(policy) >= 0;
+                    }
+                    // Different versions of the plugin use different response fields.
+                    // Sending this information allows the validator to reply with only expected information.
+                    const ret = {
+                        plugin: 'cordova-plugin-purchase/' + CdvPurchase.PLUGIN_VERSION,
+                    };
+                    const wdw = window;
+                    // the cordova-plugin-device global object,
+                    // with @capacitor/device as a fallback
+                    const device = isObject(wdw.device)
+                        ? wdw.device
+                        : yield getCapacitorDevice(allowed('tracking') || allowed('fraud'));
+                    // Send the receipt validator information about the device.
+                    // This will allow to make vendor or device specific fixes and detect class
+                    // of devices with issues.
+                    // Knowing running version of OS and libraries also required for handling
+                    // support requests.
+                    if (allowed('analytics') || allowed('support')) {
+                        // Version of ionic (if applicable)
+                        const ionic = wdw.Ionic || wdw.ionic;
+                        if (ionic && ionic.version)
+                            ret.ionic = ionic.version;
+                        // Information from the cordova-plugin-device (if installed)
+                        if (device.cordova)
+                            ret.cordova = device.cordova; // Version of cordova
+                        if (device.model)
+                            ret.model = device.model; // Device model
+                        if (device.platform)
+                            ret.platform = device.platform; // OS
+                        if (device.version)
+                            ret.version = device.version; // OS version
+                        if (device.manufacturer)
+                            ret.manufacturer = device.manufacturer; // Device manufacturer
+                    }
+                    // Device identifiers are used for tracking users across services
+                    // It is sometimes required for support requests too, but I choose to
+                    // keep this out.
+                    if (allowed('tracking')) {
+                        if (device.serial)
+                            ret.serial = device.serial; // Hardware serial number
+                        if (device.uuid)
+                            ret.uuid = device.uuid; // Device UUID
+                    }
+                    // Running from a simulator is an error condition for in-app purchases.
+                    // Since only developers run in a simulator, let's always report that.
+                    if (device.isVirtual)
+                        ret.isVirtual = device.isVirtual; // Simulator
+                    // Probably nobody wants to disable fraud discovery.
+                    // A fingerprint of the device identifiers is used for fraud discovery.
+                    // An alert should be triggered by the validator when a lot of devices
+                    // share a single receipt.
+                    if (allowed('fraud')) {
+                        // For fraud discovery, we only need a fingerprint of the device.
+                        var fingerprint = '';
+                        if (device.serial)
+                            fingerprint = 'serial:' + device.serial; // Hardware serial number
+                        else if (device.uuid)
+                            fingerprint = 'uuid:' + device.uuid; // Device UUID
+                        else {
+                            // Using only model and manufacturer, we might end-up with many
+                            // users sharing the same fingerprint, which is fine for fraud discovery.
+                            if (device.model)
+                                fingerprint += '/' + device.model;
+                            if (device.manufacturer)
+                                fingerprint += '/' + device.manufacturer;
+                        }
+                        // Fingerprint is hashed to keep required level of privacy.
+                        if (fingerprint)
+                            ret.fingerprint = CdvPurchase.Utils.md5(fingerprint);
+                    }
+                    return ret;
+                });
             }
             Internal.getDeviceInfo = getDeviceInfo;
         })(Internal = Validator.Internal || (Validator.Internal = {}));

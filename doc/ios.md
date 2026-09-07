@@ -20,6 +20,23 @@ Device
  - cordova build ios
  - open with XCode and run
 
+### Native logs and raw receipts
+
+The Cordova StoreKit 1 bridge supports forwarding native purchase-plugin logs to
+JavaScript and exchanging the raw App Store receipt as base64:
+
+```ts
+store.registerNativeLogCallback(({ level, message }) => {
+    console.log(`[native ${level}] ${message}`);
+});
+
+const receipt = await store.getAppStoreReceipt();
+await store.setAppStoreReceipt(receipt);
+```
+
+The receipt cache is held in native memory only. A supplied receipt is decoded
+and validated before it replaces the current cached receipt.
+
 ### Test users and subscriptions
 
 1 month subscriptions auto-renew every 5 minutes. So far so good.

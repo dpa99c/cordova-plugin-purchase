@@ -39,6 +39,7 @@ Entry class of the plugin.
 - [findInVerifiedReceipts](CdvPurchase.Store.md#findinverifiedreceipts)
 - [get](CdvPurchase.Store.md#get)
 - [getAdapter](CdvPurchase.Store.md#getadapter)
+- [getAppStoreReceipt](CdvPurchase.Store.md#getappstorereceipt)
 - [getApplicationUsername](CdvPurchase.Store.md#getapplicationusername)
 - [getStorefront](CdvPurchase.Store.md#getstorefront)
 - [initialize](CdvPurchase.Store.md#initialize)
@@ -51,8 +52,10 @@ Entry class of the plugin.
 - [ready](CdvPurchase.Store.md#ready)
 - [refresh](CdvPurchase.Store.md#refresh)
 - [register](CdvPurchase.Store.md#register)
+- [registerNativeLogCallback](CdvPurchase.Store.md#registernativelogcallback)
 - [requestPayment](CdvPurchase.Store.md#requestpayment)
 - [restorePurchases](CdvPurchase.Store.md#restorepurchases)
+- [setAppStoreReceipt](CdvPurchase.Store.md#setappstorereceipt)
 - [update](CdvPurchase.Store.md#update)
 - [when](CdvPurchase.Store.md#when)
 
@@ -432,6 +435,21 @@ The platform adapter has to have been initialized before.
 
 ___
 
+### getAppStoreReceipt
+
+▸ **getAppStoreReceipt**(): `Promise`\<`undefined` \| `string`\>
+
+Retrieve the raw cached App Store receipt as a base64 string.
+
+This is supported by the Cordova StoreKit 1 bridge only. The receipt
+is held in native memory and is not persisted by the plugin.
+
+#### Returns
+
+`Promise`\<`undefined` \| `string`\>
+
+___
+
 ### getApplicationUsername
 
 ▸ **getApplicationUsername**(): `undefined` \| `string`
@@ -736,6 +754,28 @@ store.register([{
 
 ___
 
+### registerNativeLogCallback
+
+▸ **registerNativeLogCallback**(`callback`): `void`
+
+Register a callback for messages emitted by the native purchase bridge.
+
+Registering another callback replaces the previous callback. This is
+supported on Cordova iOS and Android only; on other platforms the
+callback is ignored.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `callback` | [`NativeLogCallback`](../modules/CdvPurchase.md#nativelogcallback) | Function called with each native log message. |
+
+#### Returns
+
+`void`
+
+___
+
 ### requestPayment
 
 ▸ **requestPayment**(`paymentRequest`, `additionalData?`): [`PaymentRequestPromise`](CdvPurchase.PaymentRequestPromise.md)
@@ -769,6 +809,26 @@ This method exists to cover an Apple AppStore requirement.
 #### Returns
 
 `Promise`\<`undefined` \| [`IError`](../interfaces/CdvPurchase.IError.md)\>
+
+___
+
+### setAppStoreReceipt
+
+▸ **setAppStoreReceipt**(`base64`): `Promise`\<`void`\>
+
+Validate and cache a raw App Store receipt supplied as base64.
+
+This is supported by the Cordova StoreKit 1 bridge only.
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `base64` | `string` |
+
+#### Returns
+
+`Promise`\<`void`\>
 
 ___
 

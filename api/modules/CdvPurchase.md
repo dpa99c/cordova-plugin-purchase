@@ -75,6 +75,7 @@ const { store, ProductType, Platform, LogLevel } = CdvPurchase;
 - [IError](../interfaces/CdvPurchase.IError.md)
 - [IRegisterProduct](../interfaces/CdvPurchase.IRegisterProduct.md)
 - [IapticConfig](../interfaces/CdvPurchase.IapticConfig.md)
+- [NativeLogMessage](../interfaces/CdvPurchase.NativeLogMessage.md)
 - [PaymentRequest](../interfaces/CdvPurchase.PaymentRequest.md)
 - [PaymentRequestItem](../interfaces/CdvPurchase.PaymentRequestItem.md)
 - [PostalAddress](../interfaces/CdvPurchase.PostalAddress.md)
@@ -89,6 +90,7 @@ const { store, ProductType, Platform, LogLevel } = CdvPurchase;
 
 - [Callback](CdvPurchase.md#callback)
 - [IPeriodUnit](CdvPurchase.md#iperiodunit)
+- [NativeLogCallback](CdvPurchase.md#nativelogcallback)
 - [Obfuscator](CdvPurchase.md#obfuscator)
 - [PlatformFunctionality](CdvPurchase.md#platformfunctionality)
 - [PlatformWithOptions](CdvPurchase.md#platformwithoptions)
@@ -134,6 +136,28 @@ ___
 Ƭ **IPeriodUnit**: ``"Minute"`` \| ``"Hour"`` \| ``"Day"`` \| ``"Week"`` \| ``"Month"`` \| ``"Year"``
 
 Unit for measuring durations
+
+___
+
+### NativeLogCallback
+
+Ƭ **NativeLogCallback**: (`message`: [`NativeLogMessage`](../interfaces/CdvPurchase.NativeLogMessage.md)) => `void`
+
+Receives log messages emitted by the native purchase bridge.
+
+#### Type declaration
+
+▸ (`message`): `void`
+
+##### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `message` | [`NativeLogMessage`](../interfaces/CdvPurchase.NativeLogMessage.md) |
+
+##### Returns
+
+`void`
 
 ___
 

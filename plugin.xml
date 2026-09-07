@@ -61,6 +61,8 @@ SOFTWARE.
 
         <header-file src="src/ios/InAppPurchase.h" />
         <source-file src="src/ios/InAppPurchase.m" />
+        <header-file src="src/ios/Logger.h" />
+        <source-file src="src/ios/Logger.m" />
         <header-file src="src/ios/SKProduct+LocalizedPrice.h" />
         <source-file src="src/ios/SKProduct+LocalizedPrice.m" />
         <header-file src="src/ios/SKProductDiscount+LocalizedPrice.h" />
@@ -103,6 +105,8 @@ SOFTWARE.
 
         <header-file src="src/ios/InAppPurchase.h" />
         <source-file src="src/ios/InAppPurchase.m" />
+        <header-file src="src/ios/Logger.h" />
+        <source-file src="src/ios/Logger.m" />
         <header-file src="src/ios/SKProduct+LocalizedPrice.h" />
         <source-file src="src/ios/SKProduct+LocalizedPrice.m" />
         <header-file src="src/ios/SKProductDiscount+LocalizedPrice.h" />
@@ -138,6 +142,7 @@ SOFTWARE.
       <framework src="androidx.core:core:1.9.0" />
       <source-file src="src/android/cc/fovea/PurchasePlugin.java" target-dir="src/cc/fovea" />
       <source-file src="src/android/cc/fovea/Constants.java" target-dir="src/cc/fovea" />
+      <source-file src="src/android/cc/fovea/Logger.java" target-dir="src/cc/fovea" />
     </platform>
 
     <platform name="browser">

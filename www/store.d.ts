@@ -138,6 +138,15 @@ declare namespace CdvPurchase {
     }
 }
 declare namespace CdvPurchase {
+    /** A log message emitted by the native purchase bridge. */
+    interface NativeLogMessage {
+        /** Native log severity. */
+        level: 'debug' | 'info' | 'warning' | 'error';
+        /** Message including the native logger's context prefix. */
+        message: string;
+    }
+    /** Receives log messages emitted by the native purchase bridge. */
+    type NativeLogCallback = (message: NativeLogMessage) => void;
     /**
      * Desired logging level for the {@link Logger}
      *
@@ -951,6 +960,16 @@ declare namespace CdvPurchase {
          */
         verbosity: LogLevel;
         /**
+         * Register a callback for messages emitted by the native purchase bridge.
+         *
+         * Registering another callback replaces the previous callback. This is
+         * supported on Cordova iOS and Android only; on other platforms the
+         * callback is ignored.
+         *
+         * @param callback Function called with each native log message.
+         */
+        registerNativeLogCallback(callback: NativeLogCallback): void;
+        /**
          * Return the identifier of the user for your application.
          *
          * This value is obfuscated according to {@link Store.obfuscator} before being
@@ -1229,6 +1248,19 @@ declare namespace CdvPurchase {
             id: string;
             platform?: Platform;
         } | string): boolean;
+        /**
+         * Retrieve the raw cached App Store receipt as a base64 string.
+         *
+         * This is supported by the Cordova StoreKit 1 bridge only. The receipt
+         * is held in native memory and is not persisted by the plugin.
+         */
+        getAppStoreReceipt(): Promise<string | undefined>;
+        /**
+         * Validate and cache a raw App Store receipt supplied as base64.
+         *
+         * This is supported by the Cordova StoreKit 1 bridge only.
+         */
+        setAppStoreReceipt(base64: string): Promise<void>;
         /**
          * Place an order for a given offer.
          */
@@ -2856,6 +2888,10 @@ declare namespace CdvPurchase {
             private prepareReceipt;
             /** Promisified loading of the AppStore receipt */
             private loadAppStoreReceipt;
+            /** Retrieve the raw cached App Store receipt as base64. */
+            getAppStoreReceipt(): Promise<string | undefined>;
+            /** Validate and replace the native raw App Store receipt cache. */
+            setAppStoreReceipt(base64: string): Promise<void>;
             private loadEligibility;
             private callDiscountEligibilityDeterminer;
             loadProducts(products: IRegisterProduct[]): Promise<(Product | IError)[]>;
@@ -2952,6 +2988,10 @@ declare namespace CdvPurchase {
                 loadReceipts(callback: (receipt: ApplicationReceipt) => void, errorCb: (code: ErrorCode, message: string) => void): void;
                 /** Retrieve the storefront country code (alpha-3 on iOS) */
                 getStorefront?(): Promise<string | undefined>;
+                /** Retrieve the cached raw App Store receipt as base64. */
+                getAppStoreReceipt?(): Promise<string | undefined>;
+                /** Validate and cache a raw App Store receipt supplied as base64. */
+                setAppStoreReceipt?(base64: string): Promise<void>;
             }
         }
     }
@@ -3248,6 +3288,8 @@ declare namespace CdvPurchase {
                 refreshReceipts(successCb: (receipt: ApplicationReceipt) => void, errorCb: (code: ErrorCode, message: string) => void): void;
                 /** Retrieve the storefront country code from StoreKit */
                 getStorefront(): Promise<string | undefined>;
+                getAppStoreReceipt(): Promise<string | undefined>;
+                setAppStoreReceipt(base64: string): Promise<void>;
                 loadReceipts(callback: (receipt: ApplicationReceipt) => void, errorCb: (code: ErrorCode, message: string) => void): void;
                 /** @deprecated */
                 onPurchased: boolean;
@@ -6242,7 +6284,7 @@ declare namespace CdvPurchase {
             interface PrivacyPolicyProvider {
                 validator_privacy_policy: undefined | string | string[];
             }
-            function getDeviceInfo(store: PrivacyPolicyProvider): DeviceInfo;
+            function getDeviceInfo(store: PrivacyPolicyProvider): Promise<DeviceInfo>;
         }
     }
 }

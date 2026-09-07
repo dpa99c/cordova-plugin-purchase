@@ -17,18 +17,21 @@
 
 #import "SKProduct+LocalizedPrice.h"
 #import "SKProductDiscount+LocalizedPrice.h"
+#import "Logger.h"
 #import "RMStoreAppReceiptVerifier.h"
 @interface InAppPurchase : CDVPlugin <SKPaymentTransactionObserver> {
     NSMutableDictionary *products;
     NSMutableDictionary *retainer;
     NSMutableDictionary *unfinishedTransactions;
     NSMutableArray *pendingTransactionUpdates;
+    NSData *rawAppStoreReceipt;
     RMStoreAppReceiptVerifier *verifier;
 }
 @property (nonatomic,retain) NSMutableDictionary *products;
 @property (nonatomic,retain) NSMutableDictionary *retainer;
 @property (nonatomic, retain) NSMutableDictionary *unfinishedTransactions;
 @property (nonatomic, retain) NSMutableArray *pendingTransactionUpdates;
+@property (nonatomic, retain) NSData *rawAppStoreReceipt;
 @property (nonatomic, retain) RMStoreAppReceiptVerifier *verifier;
 
 - (void) canMakePayments: (CDVInvokedUrlCommand*)command;
@@ -37,9 +40,16 @@
 - (void) load: (CDVInvokedUrlCommand*)command;
 - (void) purchase: (CDVInvokedUrlCommand*)command;
 - (void) appStoreReceipt: (CDVInvokedUrlCommand*)command;
+- (void) getAppStoreReceipt: (CDVInvokedUrlCommand*)command;
+- (void) setAppStoreReceipt: (CDVInvokedUrlCommand*)command;
 - (void) appStoreRefreshReceipt: (CDVInvokedUrlCommand*)command;
 - (void) setBundleDetails: (CDVInvokedUrlCommand*)command;
 - (void) processPendingTransactions: (CDVInvokedUrlCommand*)command;
+- (void) setLogListener: (CDVInvokedUrlCommand*)command;
+
+- (NSData *)readAppStoreReceiptFromBundle;
+- (NSArray *)parseAppReceiptFromData:(NSData *)receiptData;
+- (BOOL)isValidAppStoreReceiptData:(NSData *)receiptData;
 
 - (void) paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray *)transactions;
 - (void) paymentQueue:(SKPaymentQueue *)queue restoreCompletedTransactionsFailedWithError:(NSError *)error;

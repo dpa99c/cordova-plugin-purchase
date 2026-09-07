@@ -13,7 +13,6 @@
  * Plugin state variables
  */
 static BOOL g_initialized = NO;
-static BOOL g_debugEnabled = NO;
 static BOOL g_autoFinishEnabled = NO;
 
 // YES once pluginInitialize detected StoreKit2Plugin on iOS 15+ and skipped SK1 init.
@@ -28,14 +27,6 @@ static BOOL g_lazyInitialized = NO;
 
 // Help create NSNull objects for nil items (since neither NSArray nor NSDictionary can store nil values).
 #define NILABLE(obj) ((obj) != nil ? (NSObject *)(obj) : (NSObject *)[NSNull null])
-
-// Log messages to NSLog if g_debugEnabled is set
-#define DLog(fmt, ...) { \
-    if (g_debugEnabled) \
-        NSLog((@"[CdvPurchase.AppleAppStore.objc] " fmt), ##__VA_ARGS__); \
-    else if (!g_initialized) \
-        NSLog((@"[CdvPurchase.AppleAppStore.objc] (before init): " fmt), ##__VA_ARGS__); \
-}
 
 #define ERROR_CODES_BASE 6777000
 #define ERR_SETUP                             (ERROR_CODES_BASE + 1)
@@ -259,6 +250,7 @@ static NSString *dateToString(NSDate* date) {
 @synthesize retainer;
 @synthesize unfinishedTransactions;
 @synthesize pendingTransactionUpdates;
+@synthesize rawAppStoreReceipt;
 @synthesize verifier;
 
 // Idempotent initialization of plugin state + SK1 transaction observer.
@@ -277,11 +269,11 @@ static NSString *dateToString(NSDate* date) {
     
     if ([SKPaymentQueue canMakePayments]) {
         [[SKPaymentQueue defaultQueue] addTransactionObserver:self];
-        NSLog(@"[CdvPurchase.AppleAppStore.objc] Initialized%@.",
-              g_stoodDown ? @" (lazy, after SK2 stand-down)" : @"");
+        [Logger info:@"Initialized%@.",
+            g_stoodDown ? @" (lazy, after SK2 stand-down)" : @""];
     }
     else {
-        NSLog(@"[CdvPurchase.AppleAppStore.objc] Initialization failed: payments are disabled.");
+        [Logger error:@"Initialization failed: payments are disabled."];
     }
     g_lazyInitialized = YES;
 }
@@ -295,7 +287,7 @@ static NSString *dateToString(NSDate* date) {
     if (NSClassFromString(@"StoreKit2Plugin") != nil) {
         if (@available(iOS 15.0, *)) {
             g_stoodDown = YES;
-            NSLog(@"[CdvPurchase.AppleAppStore.objc] StoreKit2Plugin detected on iOS 15+, SK1 standing down.");
+            [Logger info:@"StoreKit2Plugin detected on iOS 15+, SK1 standing down."];
             return;
         }
     }
@@ -304,33 +296,37 @@ static NSString *dateToString(NSDate* date) {
 
 // Reset the plugin state
 -(void) onReset {
-  DLog(@"WARNING: Your app should be single page to use in-app-purchases. onReset is not supported.");
+  [Logger debug:@"WARNING: Your app should be single page to use in-app-purchases. onReset is not supported."];
 }
 
 -(void) debug: (CDVInvokedUrlCommand*)command {
-    g_debugEnabled = YES;
+    [Logger setDebugEnabled:YES];
 }
 
 -(void) autoFinish: (CDVInvokedUrlCommand*)command {
     g_autoFinishEnabled = YES;
 }
 
+-(void) setLogListener: (CDVInvokedUrlCommand*)command {
+    [Logger registerCommandDelegate:self.commandDelegate callbackId:command.callbackId];
+}
+
 -(void) getStorefront: (CDVInvokedUrlCommand*)command {
-    DLog(@"getStorefront");
+    [Logger debug:@"getStorefront"];
     if (@available(iOS 13.0, macOS 10.15, *)) {
         SKStorefront *storefront = [[SKPaymentQueue defaultQueue] storefront];
         if (storefront) {
             NSString *countryCode = storefront.countryCode;
-            DLog(@"getStorefront: %@", countryCode);
+            [Logger debug:@"getStorefront: %@", countryCode];
             CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:countryCode];
             [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         } else {
-            DLog(@"getStorefront: storefront not available");
+            [Logger debug:@"getStorefront: storefront not available"];
             CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Storefront not available"];
             [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         }
     } else {
-        DLog(@"getStorefront: not available (requires iOS 13.0+)");
+        [Logger debug:@"getStorefront: not available (requires iOS 13.0+)"];
         CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Storefront requires iOS 13.0+"];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
     }
@@ -340,15 +336,16 @@ static NSString *dateToString(NSDate* date) {
     [self _ensureInitialized];
     CDVPluginResult* pluginResult = nil;
     g_initialized = YES;
+    [Logger setInitialised:YES];
 
     if (![SKPaymentQueue canMakePayments]) {
-        DLog(@"setup: Cant make payments, plugin disabled.");
+        [Logger debug:@"setup: Cant make payments, plugin disabled."];
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Can't make payments"];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         return;
     }
     else {
-        DLog(@"setup: OK");
+        [Logger debug:@"setup: OK"];
     }
 
     pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"InAppPurchase initialized"];
@@ -403,11 +400,11 @@ static NSString *dateToString(NSDate* date) {
  */
 - (void) load: (CDVInvokedUrlCommand*)command {
 
-    DLog(@"load: Getting products data");
+    [Logger debug:@"load: Getting products data"];
     NSArray *inArray = [command.arguments objectAtIndex:0];
 
     if ((unsigned long)[inArray count] == 0) {
-        DLog(@"load: Empty array");
+        [Logger debug:@"load: Empty array"];
         NSArray *callbackArgs = [NSArray arrayWithObjects: [NSNull null], [NSNull null], nil];
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsArray:callbackArgs];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
@@ -415,16 +412,16 @@ static NSString *dateToString(NSDate* date) {
     }
 
     if (![[inArray objectAtIndex:0] isKindOfClass:[NSString class]]) {
-        DLog(@"load: Not an array of NSString");
+        [Logger debug:@"load: Not an array of NSString"];
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Invalid arguments"];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         return;
     }
 
     NSSet *productIdentifiers = [NSSet setWithArray:inArray];
-    DLog(@"load: Set has %li elements", (unsigned long)[productIdentifiers count]);
+    [Logger debug:@"load: Set has %li elements", (unsigned long)[productIdentifiers count]];
     for (NSString *item in productIdentifiers) {
-      DLog(@"load:  - %@", item);
+      [Logger debug:@"load:  - %@", item];
     }
     SKProductsRequest *productsRequest = [[SKProductsRequest alloc] initWithProductIdentifiers:productIdentifiers];
 
@@ -440,9 +437,9 @@ static NSString *dateToString(NSDate* date) {
     [delegate retain];
 #endif
 
-    DLog(@"load: Starting product request...");
+    [Logger debug:@"load: Starting product request..."];
     [productsRequest start];
-    DLog(@"load: Product request started");
+    [Logger debug:@"load: Product request started"];
 }
 
 - (NSString *) stringArgument: (id)value {
@@ -456,7 +453,7 @@ static NSString *dateToString(NSDate* date) {
 
 - (void) purchase: (CDVInvokedUrlCommand*)command {
 
-    DLog(@"purchase: About to do IAP");
+    [Logger debug:@"purchase: About to do IAP"];
     id identifier = [command.arguments objectAtIndex:0];
     id quantity =   [command.arguments objectAtIndex:1];
     NSString *applicationUsername = [self stringArgument: [command.arguments objectAtIndex:2]];
@@ -464,7 +461,7 @@ static NSString *dateToString(NSDate* date) {
 
     SKProduct *product = [self.products objectForKey:identifier];
     if (product == nil) {
-        DLog(@"Product (%@) does not exist or is not sucessfully initialized.", identifier);
+        [Logger debug:@"Product (%@) does not exist or is not sucessfully initialized.", identifier];
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Product does not exist."];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         return;
@@ -474,15 +471,15 @@ static NSString *dateToString(NSDate* date) {
         payment.quantity = [quantity integerValue];
     }
     if (applicationUsername != nil && applicationUsername.length > 0) {
-        DLog(@"purchase applicationUsername (%@).", applicationUsername);
+        [Logger debug:@"purchase applicationUsername (%@).", applicationUsername];
         payment.applicationUsername = applicationUsername;
     }
     if ([discountArg isKindOfClass:[NSDictionary class]]) {
         NSDictionary *discount = (NSDictionary*)discountArg;
         if (discount[@"id"] != nil) {
-            DLog(@"purchase with discount (%@, %@, %@, %@, %@).", discount[@"id"], discount[@"key"], discount[@"nonce"], discount[@"signature"], discount[@"timestamp"]);
+            [Logger debug:@"purchase with discount (%@, %@, %@, %@, %@).", discount[@"id"], discount[@"key"], discount[@"nonce"], discount[@"signature"], discount[@"timestamp"]];
             if (@available(iOS 12.2, macOS 10.14.4, *)) {
-                DLog(@" + discounts API available");
+                [Logger debug:@" + discounts API available"];
                 payment.paymentDiscount = [[SKPaymentDiscount alloc]
                 initWithIdentifier: discount[@"id"]
                     keyIdentifier: discount[@"key"]
@@ -503,11 +500,11 @@ static NSString *dateToString(NSDate* date) {
   CDVPluginResult* pluginResult = nil;
 
   if (![SKPaymentQueue canMakePayments]) {
-      DLog(@"canMakePayments: Device can't make payments.");
+      [Logger debug:@"canMakePayments: Device can't make payments."];
       pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Can't make payments"];
   }
   else {
-      DLog(@"canMakePayments: Device can make payments.");
+      [Logger debug:@"canMakePayments: Device can make payments."];
       pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"Can make payments"];
   }
 
@@ -530,12 +527,12 @@ static NSString *dateToString(NSDate* date) {
 
         error = state = transactionIdentifier = originalTransactionIdentifier = transactionReceipt = productId = transactionDate = discountId = @"";
         errorCode = 0;
-        DLog(@"paymentQueue:updatedTransactions: %@", transaction.payment.productIdentifier);
+        [Logger debug:@"paymentQueue:updatedTransactions: %@", transaction.payment.productIdentifier];
 
         switch (transaction.transactionState) {
 
             case SKPaymentTransactionStatePurchasing:
-                DLog(@"paymentQueue:updatedTransactions: Purchasing...");
+                [Logger debug:@"paymentQueue:updatedTransactions: Purchasing..."];
                 state = @"PaymentTransactionStatePurchasing";
                 productId = transaction.payment.productIdentifier;
                 break;
@@ -561,7 +558,7 @@ static NSString *dateToString(NSDate* date) {
                 break;
 
             case SKPaymentTransactionStateDeferred:
-                DLog(@"paymentQueue:updatedTransactions: Deferred...");
+                [Logger debug:@"paymentQueue:updatedTransactions: Deferred..."];
                 state = @"PaymentTransactionStateDeferred";
                 productId = transaction.payment.productIdentifier;
                 break;
@@ -571,7 +568,7 @@ static NSString *dateToString(NSDate* date) {
                 error = transaction.error.localizedDescription;
                 errorCode = jsErrorCode(transaction.error.code);
                 productId = transaction.payment.productIdentifier;
-                DLog(@"paymentQueue:updatedTransactions: Error %@ - %@", jsErrorCodeAsString(errorCode), error);
+                [Logger debug:@"paymentQueue:updatedTransactions: Error %@ - %@", jsErrorCodeAsString(errorCode), error];
 
                 // Finish failed transactions, when autoFinish is off
                 if (!g_autoFinishEnabled) {
@@ -599,11 +596,11 @@ static NSString *dateToString(NSDate* date) {
                 break;
 
             default:
-                DLog(@"paymentQueue:updatedTransactions: Invalid state");
+                [Logger debug:@"paymentQueue:updatedTransactions: Invalid state"];
                 continue;
         }
 
-        DLog(@"paymentQueue:updatedTransactions: State: %@", state);
+        [Logger debug:@"paymentQueue:updatedTransactions: State: %@", state];
 #define PT_INDEX_STATE 0
 #define PT_INDEX_ERROR_CODE 1
 #define PT_INDEX_ERROR 2
@@ -638,7 +635,7 @@ static NSString *dateToString(NSDate* date) {
 
 - (void) processPendingTransactionUpdates {
 
-    DLog(@"processPendingTransactionUpdates");
+    [Logger debug:@"processPendingTransactionUpdates"];
     for (NSArray *ta in pendingTransactionUpdates) {
         [self processTransactionUpdate:ta[0] withArgs:ta[1]];
     }
@@ -649,7 +646,7 @@ static NSString *dateToString(NSDate* date) {
 
 - (void) processTransactionUpdate:(SKPaymentTransaction*)transaction withArgs:(NSArray*)callbackArgs {
 
-    DLog(@"processTransactionUpdate:withArgs: transactionIdentifier=%@", callbackArgs[PT_INDEX_TRANSACTION_IDENTIFIER]);
+    [Logger debug:@"processTransactionUpdate:withArgs: transactionIdentifier=%@", callbackArgs[PT_INDEX_TRANSACTION_IDENTIFIER]];
     NSString *js = [NSString
         stringWithFormat:@"window.storekit.transactionUpdated.apply(window.storekit, %@)",
         [callbackArgs JSONSerialize]];
@@ -670,7 +667,7 @@ static NSString *dateToString(NSDate* date) {
 }
 
 - (void) transactionFinished: (SKPaymentTransaction*) transaction {
-    DLog(@"transactionFinished: %@", transaction.transactionIdentifier);
+    [Logger debug:@"transactionFinished: %@", transaction.transactionIdentifier];
 
     NSArray *callbackArgs = [NSArray arrayWithObjects:
         NILABLE(@"PaymentTransactionStateFinished"),
@@ -693,7 +690,7 @@ static NSString *dateToString(NSDate* date) {
 - (void) finishTransaction: (CDVInvokedUrlCommand*)command {
 
     NSString *identifier = (NSString*)[command.arguments objectAtIndex:0];
-    // DLog(@"finishTransaction: %@", identifier);
+    // [Logger debug:@"finishTransaction: %@", identifier];
     SKPaymentTransaction *transaction = nil;
 
     if (identifier) {
@@ -702,21 +699,21 @@ static NSString *dateToString(NSDate* date) {
 
     CDVPluginResult* pluginResult;
     if (transaction) {
-        DLog(@"finishTransaction: Transaction %@ finished.", identifier);
+        [Logger debug:@"finishTransaction: Transaction %@ finished.", identifier];
         [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
         [self.unfinishedTransactions removeObjectForKey:identifier];
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
         [self transactionFinished:transaction];
     }
     else {
-        // DLog(@"finishTransaction: Cannot finish transaction %@.", identifier);
+        // [Logger debug:@"finishTransaction: Cannot finish transaction %@.", identifier];
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Cannot finish transaction [#CdvPurchase:100]"];
     }
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
 - (void) paymentQueue:(SKPaymentQueue *)queue restoreCompletedTransactionsFailedWithError:(NSError *)error {
-    DLog(@"paymentQueue:restoreCompletedTransactionsFailedWithError:");
+    [Logger debug:@"paymentQueue:restoreCompletedTransactionsFailedWithError:"];
     NSString *js = [NSString stringWithFormat:
         @"window.storekit.restoreCompletedTransactionsFailed(%li)", (unsigned long)jsErrorCode(error.code)];
     [self.commandDelegate evalJs: js];
@@ -724,12 +721,22 @@ static NSString *dateToString(NSDate* date) {
 
 - (void) paymentQueueRestoreCompletedTransactionsFinished:(SKPaymentQueue *)queue {
 
-    DLog(@"paymentQueueRestoreCompletedTransactionsFinished:");
+    [Logger debug:@"paymentQueueRestoreCompletedTransactionsFinished:"];
     NSString *js = @"window.storekit.restoreCompletedTransactionsFinished.apply(window.storekit)";
     [self.commandDelegate evalJs: js];
 }
 
 - (NSData *)appStoreReceipt {
+    if (self.rawAppStoreReceipt) {
+        return self.rawAppStoreReceipt;
+    }
+
+    NSData *receiptData = [self readAppStoreReceiptFromBundle];
+    self.rawAppStoreReceipt = receiptData;
+    return receiptData;
+}
+
+- (NSData *)readAppStoreReceiptFromBundle {
     NSURL *receiptURL = nil;
     NSBundle *bundle = [NSBundle mainBundle];
     if ([bundle respondsToSelector:@selector(appStoreReceiptURL)]) {
@@ -759,16 +766,47 @@ static NSString *dateToString(NSDate* date) {
 
 - (void) appStoreReceipt: (CDVInvokedUrlCommand*)command {
 
-    DLog(@"appStoreReceipt:");
+    [Logger debug:@"appStoreReceipt:"];
     NSArray *callbackArgs = [self parseAppReceipt];
     CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
                                                       messageAsArray:callbackArgs];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
+- (void) getAppStoreReceipt: (CDVInvokedUrlCommand*)command {
+    NSData *receiptData = [self appStoreReceipt];
+    NSString *base64 = [receiptData base64EncodedStringWithOptions:0];
+    CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
+                                                      messageAsString:base64];
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+- (void) setAppStoreReceipt: (CDVInvokedUrlCommand*)command {
+    if (command.arguments.count == 0 || ![command.arguments[0] isKindOfClass:[NSString class]]) {
+        [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
+                                                                  messageAsString:@"Receipt must be a base64 string"]
+                                    callbackId:command.callbackId];
+        return;
+    }
+
+    NSString *base64 = command.arguments[0];
+    NSData *receiptData = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+    RMAppReceipt *receipt = [RMAppReceipt receiptWithPKCS7Data:receiptData];
+    if (!receipt || ![self.verifier verifyAppReceipt:receipt]) {
+        [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
+                                                                  messageAsString:@"Receipt failed validation"]
+                                    callbackId:command.callbackId];
+        return;
+    }
+
+    self.rawAppStoreReceipt = receiptData;
+    [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_OK]
+                                callbackId:command.callbackId];
+}
+
 - (void) appStoreRefreshReceipt: (CDVInvokedUrlCommand*)command {
 
-    DLog(@"appStoreRefreshReceipt: Request to refresh app receipt");
+    [Logger debug:@"appStoreRefreshReceipt: Request to refresh app receipt"];
     RefreshReceiptDelegate* refreshReceiptDelegate = [[RefreshReceiptDelegate alloc] init];
     SKReceiptRefreshRequest* receiptRefreshRequest = [[SKReceiptRefreshRequest alloc] init];
     receiptRefreshRequest.delegate = refreshReceiptDelegate;
@@ -782,13 +820,13 @@ static NSString *dateToString(NSDate* date) {
     [refreshReceiptDelegate retain];
 #endif
 
-    DLog(@"appStoreRefreshReceipt: Starting receipt refresh request...");
+    [Logger debug:@"appStoreRefreshReceipt: Starting receipt refresh request..."];
     [receiptRefreshRequest start];
-    DLog(@"appStoreRefreshReceipt: Receipt refresh request started");
+    [Logger debug:@"appStoreRefreshReceipt: Receipt refresh request started"];
 }
 
 - (void) setBundleDetails: (CDVInvokedUrlCommand*)command {
-    DLog(@"setBundleDetails: Setting bundle details for local app store receipt verification");
+    [Logger debug:@"setBundleDetails: Setting bundle details for local app store receipt verification"];
     
     NSString *bundleIdentifier = [command.arguments objectAtIndex:0];
     NSString *bundleVersion = [command.arguments objectAtIndex:1];
@@ -796,7 +834,7 @@ static NSString *dateToString(NSDate* date) {
     if (![bundleIdentifier isKindOfClass:[NSString class]] || bundleIdentifier == nil || [bundleIdentifier isEqualToString:@""]
         || ![bundleVersion isKindOfClass:[NSString class]] || bundleVersion == nil || [bundleVersion isEqualToString:@""]
     ) {
-        DLog(@"setBundleDetails: Not an non-empty NSString");
+        [Logger debug:@"setBundleDetails: Not an non-empty NSString"];
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Invalid arguments"];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
         return;
@@ -809,12 +847,16 @@ static NSString *dateToString(NSDate* date) {
 }
 
 - (NSArray*) parseAppReceipt {
-    NSString *base64 = nil;
     NSData *receiptData = [self appStoreReceipt];
+    return [self parseAppReceiptFromData:receiptData];
+}
+
+- (NSArray *)parseAppReceiptFromData:(NSData *)receiptData {
+    NSString *base64 = nil;
     NSDictionary* receiptPayload = nil;
     if (receiptData != nil) {
         base64 = [receiptData convertToBase64];
-        RMAppReceipt* receipt = [RMAppReceipt bundleReceipt];
+        RMAppReceipt* receipt = [RMAppReceipt receiptWithPKCS7Data:receiptData];
         if(receipt != nil){
             NSArray* _inAppPurchases = [receipt valueForKey:@"inAppPurchases"];
             NSMutableArray* inAppPurchases = [NSMutableArray new];
@@ -838,7 +880,7 @@ static NSString *dateToString(NSDate* date) {
               NILABLE(receipt.originalAppVersion), @"originalAppVersion",
               NILABLE(dateToString(receipt.expirationDate)), @"expirationDate",
               NILABLE(inAppPurchases), @"inAppPurchases",
-              @([self.verifier verifyAppReceipt]), @"verified",
+              @([self.verifier verifyAppReceipt:receipt]), @"verified",
             nil];
         }
     }
@@ -853,10 +895,18 @@ static NSString *dateToString(NSDate* date) {
         nil];
     return callbackArgs;
 }
+
+- (BOOL)isValidAppStoreReceiptData:(NSData *)receiptData {
+    RMAppReceipt *receipt = [RMAppReceipt receiptWithPKCS7Data:receiptData];
+    return receipt != nil && [self.verifier verifyAppReceipt:receipt];
+}
 - (void) dispose {
     g_initialized = NO;
-    g_debugEnabled = NO;
     g_autoFinishEnabled = NO;
+    self.rawAppStoreReceipt = nil;
+    [Logger clearCommandDelegate];
+    [Logger setDebugEnabled:NO];
+    [Logger setInitialised:NO];
     self.products = nil;
     self.unfinishedTransactions = nil;
     self.pendingTransactionUpdates = nil;
@@ -917,11 +967,15 @@ static NSString *dateToString(NSDate* date) {
 
 - (void) requestDidFinish:(SKRequest *)request {
 
-    DLog(@"RefreshReceiptDelegate.requestDidFinish: Got refreshed receipt");
-    NSArray *callbackArgs = [self.plugin parseAppReceipt];
+    [Logger debug:@"RefreshReceiptDelegate.requestDidFinish: Got refreshed receipt"];
+    NSData *receiptData = [self.plugin readAppStoreReceiptFromBundle];
+    NSArray *callbackArgs = [self.plugin parseAppReceiptFromData:receiptData];
+    if ([self.plugin isValidAppStoreReceiptData:receiptData]) {
+        self.plugin.rawAppStoreReceipt = receiptData;
+    }
     CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
                                                       messageAsArray:callbackArgs];
-    DLog(@"RefreshReceiptDelegate.requestDidFinish: Send new receipt data");
+    [Logger debug:@"RefreshReceiptDelegate.requestDidFinish: Send new receipt data"];
     [self.plugin.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 
 #if ARC_ENABLED
@@ -944,9 +998,9 @@ static NSString *dateToString(NSDate* date) {
 }
 
 - (void)request:(SKRequest *)request didFailWithError:(NSError *)error {
-    DLog(@"RefreshReceiptDelegate.request didFailWithError: In-App Store unavailable (ERROR %li)", (unsigned long)error.code);
+    [Logger debug:@"RefreshReceiptDelegate.request didFailWithError: In-App Store unavailable (ERROR %li)", (unsigned long)error.code];
     NSString *message = [self errorCodeStack:error];
-    DLog(@"RefreshReceiptDelegate.request didFailWithError: %@", message);
+    [Logger debug:@"RefreshReceiptDelegate.request didFailWithError: %@", message];
     CDVPluginResult* pluginResult =
     [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:message];
     [self.plugin.commandDelegate sendPluginResult:pluginResult callbackId:self.command.callbackId];
@@ -979,9 +1033,9 @@ static NSString *dateToString(NSDate* date) {
 
 - (void)productsRequest:(SKProductsRequest*)request didReceiveResponse:(SKProductsResponse*)response {
 
-    DLog(@"BatchProductsRequestDelegate.productsRequest:didReceiveResponse:");
+    [Logger debug:@"BatchProductsRequestDelegate.productsRequest:didReceiveResponse:"];
     NSMutableArray *validProducts = [NSMutableArray array];
-    DLog(@"BatchProductsRequestDelegate.productsRequest:didReceiveResponse: Has %li validProducts", (unsigned long)[response.products count]);
+    [Logger debug:@"BatchProductsRequestDelegate.productsRequest:didReceiveResponse: Has %li validProducts", (unsigned long)[response.products count]];
     for (SKProduct *product in response.products) {
         NSString *currencyCode = priceLocaleCurrencyCode(product.priceLocale);
         NSString *countryCode = [product.priceLocale objectForKey: NSLocaleCountryCode];
@@ -1037,7 +1091,7 @@ static NSString *dateToString(NSDate* date) {
             billingPeriodUnit = productDiscountUnitToString(product.subscriptionPeriod.unit);
         }
 
-        DLog(@"BatchProductsRequestDelegate.productsRequest:didReceiveResponse:  - %@: %@", product.productIdentifier, product.localizedTitle);
+        [Logger debug:@"BatchProductsRequestDelegate.productsRequest:didReceiveResponse:  - %@: %@", product.productIdentifier, product.localizedTitle];
         [validProducts addObject:
             [NSDictionary dictionaryWithObjectsAndKeys:
                 NILABLE(product.productIdentifier),    @"id",
@@ -1067,7 +1121,7 @@ static NSString *dateToString(NSDate* date) {
 
     CDVPluginResult* pluginResult =
         [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsArray:callbackArgs];
-    DLog(@"BatchProductsRequestDelegate.productsRequest:didReceiveResponse: sendPluginResult: %@", callbackArgs);
+    [Logger debug:@"BatchProductsRequestDelegate.productsRequest:didReceiveResponse: sendPluginResult: %@", callbackArgs];
     [self.plugin.commandDelegate sendPluginResult:pluginResult callbackId:self.command.callbackId];
 
 #if ARC_ENABLED
@@ -1085,13 +1139,13 @@ static NSString *dateToString(NSDate* date) {
 
 - (void)request:(SKRequest *)request didFailWithError:(NSError *)error
 {
-    DLog(@"BatchProductsRequestDelegate.request:didFailWithError: AppStore unavailable (ERROR %li)", (unsigned long)error.code);
+    [Logger debug:@"BatchProductsRequestDelegate.request:didFailWithError: AppStore unavailable (ERROR %li)", (unsigned long)error.code];
 
     NSString *localizedDescription = [error localizedDescription];
     if (!localizedDescription)
         localizedDescription = @"AppStore unavailable";
     else
-        DLog(@"BatchProductsRequestDelegate.request:didFailWithError: %@", localizedDescription);
+        [Logger debug:@"BatchProductsRequestDelegate.request:didFailWithError: %@", localizedDescription];
     CDVPluginResult* pluginResult =
         [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:localizedDescription];
     [self.plugin.commandDelegate sendPluginResult:pluginResult callbackId:self.command.callbackId];

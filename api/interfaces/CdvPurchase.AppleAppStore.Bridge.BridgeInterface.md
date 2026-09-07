@@ -24,6 +24,7 @@ The adapter programs against this interface, not a concrete class.
 
 - [canMakePayments](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#canmakepayments)
 - [finish](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#finish)
+- [getAppStoreReceipt](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#getappstorereceipt)
 - [getStorefront](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#getstorefront)
 - [init](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#init)
 - [load](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#load)
@@ -34,6 +35,7 @@ The adapter programs against this interface, not a concrete class.
 - [purchase](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#purchase)
 - [refreshReceipts](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#refreshreceipts)
 - [restore](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#restore)
+- [setAppStoreReceipt](CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#setappstorereceipt)
 
 ## Properties
 
@@ -105,6 +107,18 @@ ___
 #### Returns
 
 `void`
+
+___
+
+### getAppStoreReceipt
+
+▸ **getAppStoreReceipt**(): `Promise`\<`undefined` \| `string`\>
+
+Retrieve the cached raw App Store receipt as base64.
+
+#### Returns
+
+`Promise`\<`undefined` \| `string`\>
 
 ___
 
@@ -272,3 +286,21 @@ ___
 #### Returns
 
 `void`
+
+___
+
+### setAppStoreReceipt
+
+▸ **setAppStoreReceipt**(`base64`): `Promise`\<`void`\>
+
+Validate and cache a raw App Store receipt supplied as base64.
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `base64` | `string` |
+
+#### Returns
+
+`Promise`\<`void`\>

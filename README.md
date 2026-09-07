@@ -58,6 +58,27 @@ cordova plugin add "cordova-plugin-purchase"
 const store = CdvPurchase.store;
 ```
 
+### Native logging and App Store receipts
+
+On Cordova iOS and Android, native purchase-plugin logs can be forwarded to
+JavaScript:
+
+```ts
+store.registerNativeLogCallback(({ level, message }) => {
+  console.log(`[native ${level}] ${message}`);
+});
+```
+
+The Cordova StoreKit 1 bridge also exposes the raw App Store receipt as a
+base64 string. The receipt is held in native memory only:
+
+```ts
+const receipt = await store.getAppStoreReceipt();
+await store.setAppStoreReceipt(receiptFromAnotherSource);
+```
+
+Imported receipts are decoded and validated before replacing the native cache.
+
 ### Recommended Cordova plugins
 
 <details>

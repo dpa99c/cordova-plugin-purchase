@@ -46,6 +46,10 @@ namespace CdvPurchase {
                              errorCb: (code: ErrorCode, message: string) => void): void;
                 /** Retrieve the storefront country code (alpha-3 on iOS) */
                 getStorefront?(): Promise<string | undefined>;
+                /** Retrieve the cached raw App Store receipt as base64. */
+                getAppStoreReceipt?(): Promise<string | undefined>;
+                /** Validate and cache a raw App Store receipt supplied as base64. */
+                setAppStoreReceipt?(base64: string): Promise<void>;
             }
         }
     }

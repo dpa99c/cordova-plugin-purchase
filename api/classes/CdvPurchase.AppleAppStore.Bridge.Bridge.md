@@ -30,6 +30,7 @@ The adapter programs against this interface, not a concrete class.
 - [canMakePayments](CdvPurchase.AppleAppStore.Bridge.Bridge.md#canmakepayments)
 - [finalizeTransactionUpdates](CdvPurchase.AppleAppStore.Bridge.Bridge.md#finalizetransactionupdates)
 - [finish](CdvPurchase.AppleAppStore.Bridge.Bridge.md#finish)
+- [getAppStoreReceipt](CdvPurchase.AppleAppStore.Bridge.Bridge.md#getappstorereceipt)
 - [getStorefront](CdvPurchase.AppleAppStore.Bridge.Bridge.md#getstorefront)
 - [init](CdvPurchase.AppleAppStore.Bridge.Bridge.md#init)
 - [lastTransactionUpdated](CdvPurchase.AppleAppStore.Bridge.Bridge.md#lasttransactionupdated)
@@ -45,6 +46,7 @@ The adapter programs against this interface, not a concrete class.
 - [restore](CdvPurchase.AppleAppStore.Bridge.Bridge.md#restore)
 - [restoreCompletedTransactionsFailed](CdvPurchase.AppleAppStore.Bridge.Bridge.md#restorecompletedtransactionsfailed)
 - [restoreCompletedTransactionsFinished](CdvPurchase.AppleAppStore.Bridge.Bridge.md#restorecompletedtransactionsfinished)
+- [setAppStoreReceipt](CdvPurchase.AppleAppStore.Bridge.Bridge.md#setappstorereceipt)
 - [transactionUpdated](CdvPurchase.AppleAppStore.Bridge.Bridge.md#transactionupdated)
 
 ## Constructors
@@ -183,6 +185,22 @@ ___
 #### Implementation of
 
 [BridgeInterface](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md).[finish](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#finish)
+
+___
+
+### getAppStoreReceipt
+
+▸ **getAppStoreReceipt**(): `Promise`\<`undefined` \| `string`\>
+
+Retrieve the cached raw App Store receipt as base64.
+
+#### Returns
+
+`Promise`\<`undefined` \| `string`\>
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md).[getAppStoreReceipt](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#getappstorereceipt)
 
 ___
 
@@ -465,6 +483,28 @@ ___
 #### Returns
 
 `void`
+
+___
+
+### setAppStoreReceipt
+
+▸ **setAppStoreReceipt**(`base64`): `Promise`\<`void`\>
+
+Validate and cache a raw App Store receipt supplied as base64.
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `base64` | `string` |
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[BridgeInterface](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md).[setAppStoreReceipt](../interfaces/CdvPurchase.AppleAppStore.Bridge.BridgeInterface.md#setappstorereceipt)
 
 ___
 

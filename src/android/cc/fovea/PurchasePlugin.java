@@ -16,7 +16,6 @@ package cc.fovea;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.util.Log;
 import android.app.Activity;
 import com.android.billingclient.api.AcknowledgePurchaseParams;
 import com.android.billingclient.api.AcknowledgePurchaseResponseListener;
@@ -69,6 +68,9 @@ public final class PurchasePlugin
 
   /** Tag used for log messages. */
   private final String mTag = "CdvPurchase";
+
+  /** Centralised native logger. */
+  private final Logger mLogger = new Logger(mTag);
 
   /**
    * Internal callback interface for product details queries.
@@ -193,8 +195,8 @@ public final class PurchasePlugin
    */
   private void sendToListener(final String type, final JSONObject data) {
     try {
-      Log.d(mTag, "sendToListener() -> " + type);
-      Log.d(mTag, "            data -> " + data.toString());
+      mLogger.debug(mTag, "sendToListener() -> " + type);
+      mLogger.debug(mTag, "            data -> " + data.toString());
       if (mListenerContext == null) {
         return;
       }
@@ -208,7 +210,7 @@ public final class PurchasePlugin
       result.setKeepCallback(true);
       mListenerContext.sendPluginResult(result);
     } catch (JSONException e) {
-      Log.d(mTag, "sendToListener() -> Failed: " + e.getMessage());
+      mLogger.debug(mTag, "sendToListener() -> Failed: " + e.getMessage());
     }
   }
 
@@ -220,6 +222,11 @@ public final class PurchasePlugin
     if ("setListener".equals(action)) {
       mListenerContext = callbackContext;
       sendToListener("ready", new JSONObject());
+      return true;
+    }
+
+    if ("setLogListener".equals(action)) {
+      Logger.registerCallback(callbackContext);
       return true;
     }
 
@@ -287,7 +294,7 @@ public final class PurchasePlugin
    * code as ISO 3166-1 alpha-2 (e.g., "US", "FR").
    */
   private void getStorefront(final CallbackContext callbackContext) {
-    Log.d(mTag, "getStorefront()");
+    mLogger.debug(mTag, "getStorefront()");
     executeServiceRequest(() -> {
       com.android.billingclient.api.GetBillingConfigParams params =
           com.android.billingclient.api.GetBillingConfigParams.newBuilder().build();
@@ -300,10 +307,10 @@ public final class PurchasePlugin
               if (billingResult.getResponseCode() == BillingResponseCode.OK
                   && billingConfig != null) {
                 String countryCode = billingConfig.getCountryCode();
-                Log.d(mTag, "getStorefront() -> " + countryCode);
+                mLogger.debug(mTag, "getStorefront() -> " + countryCode);
                 callbackContext.success(countryCode);
               } else {
-                Log.d(mTag, "getStorefront() -> Failed: " + format(billingResult));
+                mLogger.debug(mTag, "getStorefront() -> Failed: " + format(billingResult));
                 callbackContext.error("Failed to get billing config: "
                     + format(billingResult));
               }
@@ -336,7 +343,7 @@ public final class PurchasePlugin
   // Initialize the plugin
   private void init() {
 
-    Log.d(mTag, "init()");
+    mLogger.debug(mTag, "init()");
 
 
     mBillingClient = BillingClient
@@ -353,15 +360,15 @@ public final class PurchasePlugin
     resetLastResult(BILLING_CLIENT_NOT_CONNECTED);
     startServiceConnection(() -> {
       if (getLastResponseCode() == BillingResponseCode.OK) {
-        Log.d(mTag, "init() -> Success");
+        mLogger.debug(mTag, "init() -> Success");
         callSuccess();
       } else {
-        Log.d(mTag, "init() -> Failed: " + format(getLastResult()));
+        mLogger.debug(mTag, "init() -> Failed: " + format(getLastResult()));
         callError(Constants.ERR_SETUP,
             "Setup failed. " + format(getLastResult()));
       }
     }, () -> {
-        Log.d(mTag, "init() -> Failure: " + format(getLastResult()));
+        mLogger.debug(mTag, "init() -> Failure: " + format(getLastResult()));
         if (isPlayStoreBlocked(getLastResult())) {
           callError(Constants.ERR_STORE_BLOCKED, "Play Store is blocked on this device");
         } else {
@@ -371,7 +378,7 @@ public final class PurchasePlugin
   }
 
   private void getPurchases() {
-    Log.d(mTag, "getPurchases()");
+    mLogger.debug(mTag, "getPurchases()");
     queryPurchases();
   }
 
@@ -390,7 +397,7 @@ public final class PurchasePlugin
             + result.getResponseCode());
       }
     } catch (Exception e) {
-      Log.e(mTag, "onQueryPurchasesFinished() -> Failed: " + e.getMessage());
+      mLogger.error(mTag, "onQueryPurchasesFinished() -> Failed: " + e.getMessage());
       callError(Constants.ERR_LOAD,
           "Failed to query purchases: " + e.getMessage());
     }
@@ -431,7 +438,7 @@ public final class PurchasePlugin
    * formalized way through a listener.
    */
   public void queryPurchases() {
-    Log.d(mTag, "queryPurchases()");
+    mLogger.debug(mTag, "queryPurchases()");
     executeServiceRequest(() -> {
       long time = System.currentTimeMillis();
 
@@ -444,7 +451,7 @@ public final class PurchasePlugin
         new PurchasesResponseListener() {
           public void onQueryPurchasesResponse(BillingResult billingResult, List<Purchase> purchases) {
             mInAppResult = billingResult;
-            Log.i(mTag, "queryPurchases(INAPP) -> Elapsed time: " + (System.currentTimeMillis() - time) + "ms");
+            mLogger.info(mTag, "queryPurchases(INAPP) -> Elapsed time: " + (System.currentTimeMillis() - time) + "ms");
             if (billingResult.getResponseCode() == BillingResponseCode.OK)
               allPurchases.addAll(purchases);
             if (mInAppResult != null && (mSubsResult != null || !areSubscriptionsSupported()))
@@ -459,7 +466,7 @@ public final class PurchasePlugin
           new PurchasesResponseListener() {
             public void onQueryPurchasesResponse(BillingResult billingResult, List<Purchase> purchases) {
               mSubsResult = billingResult;
-              Log.i(mTag, "queryPurchases(SUBS) -> Elapsed time: " + (System.currentTimeMillis() - time) + "ms");
+              mLogger.info(mTag, "queryPurchases(SUBS) -> Elapsed time: " + (System.currentTimeMillis() - time) + "ms");
               if (billingResult.getResponseCode() == BillingResponseCode.OK)
                 allPurchases.addAll(purchases);
               if (mInAppResult != null && (mSubsResult != null || !areSubscriptionsSupported()))
@@ -469,23 +476,23 @@ public final class PurchasePlugin
         );
       }
       else {
-        Log.i(mTag, "queryPurchases() -> "
+        mLogger.info(mTag, "queryPurchases() -> "
           + "Subscriptions are not supported, skipped.");
       }
 
-      // Log.i(mTag, "queryPurchases() -> Elapsed time: "
+      // mLogger.info(mTag, "queryPurchases() -> Elapsed time: "
           // + (System.currentTimeMillis() - time) + "ms");
       // If there are subscriptions supported, we add subscription rows as well
       // if (areSubscriptionsSupported()) {
       // PurchasesResult subscriptionResult =
       //   mBillingClient.queryPurchases(ProductType.SUBS);
-      // Log.i(mTag, "queryPurchases() -> Subscriptions elapsed time: "
+      // mLogger.info(mTag, "queryPurchases() -> Subscriptions elapsed time: "
           // + (System.currentTimeMillis() - time) + "ms");
       // int purchasesListSize = -1;
       // if (subscriptionResult.getPurchasesList() != null) {
           // purchasesListSize = subscriptionResult.getPurchasesList().size();
       // }
-      // Log.i(mTag, "queryPurchases() -> Subscriptions result code: "
+      // mLogger.info(mTag, "queryPurchases() -> Subscriptions result code: "
           // + subscriptionResult.getResponseCode()
           // + " res: " + purchasesListSize);
       // if (subscriptionResult.getResponseCode() == BillingResponseCode.OK && subscriptionResult.getPurchasesList() != null) {
@@ -494,14 +501,14 @@ public final class PurchasePlugin
       //   result = subscriptionResult.getBillingResult();
       //   allPurchases.addAll(subscriptionResult.getPurchasesList());
       // } else {
-      //   Log.e(mTag, "queryPurchases() -> "
+      //   mLogger.error(mTag, "queryPurchases() -> "
           //   + "Error trying to query subscription purchases.");
       // }
       //   } else if (purchasesResult.getResponseCode() == BillingResponseCode.OK) {
-      //     Log.i(mTag, "queryPurchases() -> "
+      //     mLogger.info(mTag, "queryPurchases() -> "
       //         + "Subscriptions are not supported, skipped.");
       //   } else {
-      //     Log.w(mTag, "queryPurchases() -> Error response code: "
+      //     mLogger.warning(mTag, "queryPurchases() -> Error response code: "
       //         + purchasesResult.getResponseCode());
       //   }
       // onQueryPurchasesFinished(result, allPurchases);
@@ -519,7 +526,7 @@ public final class PurchasePlugin
     BillingResult result =
       mBillingClient.isFeatureSupported(FeatureType.SUBSCRIPTIONS);
     if (result.getResponseCode() != BillingResponseCode.OK) {
-      Log.w(mTag, "areSubscriptionsSupported() -> Failed: "
+      mLogger.warning(mTag, "areSubscriptionsSupported() -> Failed: "
           + format(result));
       return false;
     }
@@ -630,7 +637,7 @@ public final class PurchasePlugin
   }
 
   private void getAvailableProducts(List<String> inAppProductIds, List<String> subsProductIds) {
-    Log.d(mTag, "getAvailableProducts()");
+    mLogger.debug(mTag, "getAvailableProducts()");
     final CallbackContext callbackContext = this.mCallbackContext; // Store current context
     queryAllProductDetails(inAppProductIds, subsProductIds, new InternalProductDetailsResponseListener() {
         @Override
@@ -638,7 +645,7 @@ public final class PurchasePlugin
             final BillingResult result,
             final List<ProductDetails> productDetailsList) {
             if (result.getResponseCode() != BillingResponseCode.OK) {
-                Log.d(mTag, "getAvailableProducts() -> Failed: " + format(result));
+                mLogger.debug(mTag, "getAvailableProducts() -> Failed: " + format(result));
                 callError(callbackContext, Constants.ERR_LOAD, "Failed to load Products, code: "
                     + result.getResponseCode());
                 return;
@@ -646,13 +653,13 @@ public final class PurchasePlugin
             JSONArray jsonProductList = new JSONArray();
             try {
                 for (ProductDetails product : productDetailsList) {
-                    Log.d(mTag, "getAvailableProducts() -> productDetails: " + product.toString());
+                    mLogger.debug(mTag, "getAvailableProducts() -> productDetails: " + product.toString());
                     jsonProductList.put(productDetailsToJson(product));
                 }
-                Log.d(mTag, "getAvailableProducts() -> Success");
+                mLogger.debug(mTag, "getAvailableProducts() -> Success");
                 callSuccess(callbackContext, jsonProductList);
             } catch (JSONException e) {
-                Log.d(mTag, "getAvailableProducts() -> Failed: " + e.getMessage());
+                mLogger.debug(mTag, "getAvailableProducts() -> Failed: " + e.getMessage());
                 callError(callbackContext, Constants.ERR_LOAD, e.getMessage());
             }
         }
@@ -687,7 +694,7 @@ public final class PurchasePlugin
     try {
       final int code = result.getResponseCode();
       if (code == BillingResponseCode.OK && purchases != null && purchases.size() > 0) {
-        Log.d(mTag, "onPurchasesUpdated() -> Success");
+        mLogger.debug(mTag, "onPurchasesUpdated() -> Success");
         for (Purchase p : purchases) {
           mPurchases.add(0, p);
         }
@@ -696,12 +703,12 @@ public final class PurchasePlugin
             .put("purchases", toJSON(purchases)));
       }
       else if (code == BillingResponseCode.USER_CANCELED) {
-        Log.w(mTag, "onPurchasesUpdated() -> "
+        mLogger.warning(mTag, "onPurchasesUpdated() -> "
             + "Cancelled: " + format(result));
         callError(Constants.ERR_CANCELLED, codeToString(code));
       }
       else {
-        Log.w(mTag, "onPurchasesUpdated() -> "
+        mLogger.warning(mTag, "onPurchasesUpdated() -> "
             + "Failed: " + format(result));
         if (isPlayStoreBlocked(result)) {
           callError(Constants.ERR_STORE_BLOCKED, "Play Store is blocked on this device");
@@ -710,7 +717,7 @@ public final class PurchasePlugin
         }
       }
     } catch (Exception e) {
-      Log.w(mTag, "onPurchasesUpdated() -> Exception "
+      mLogger.warning(mTag, "onPurchasesUpdated() -> Exception "
           + e.getMessage());
       callError(Constants.ERR_PURCHASE, e.getMessage());
     }
@@ -849,7 +856,7 @@ public final class PurchasePlugin
 
     final ProductDetails productDetails = mProductDetails.get(productId);
     if (productDetails == null) {
-      Log.d(mTag, "buy() -> Failed: Product not registered: " + productId);
+      mLogger.debug(mTag, "buy() -> Failed: Product not registered: " + productId);
       callError(Constants.ERR_PURCHASE, "Product not registered: " + productId);
       return null;
     }
@@ -868,7 +875,7 @@ public final class PurchasePlugin
         .setProductDetails(productDetails)
         .setOfferToken(offerToken)
         .build());
-        Log.d(mTag, "Product details id@token: " + productIdAndOfferIndexArray + " === " + productId + "@" + offerToken + " ... " + productDetails.toString());
+        mLogger.debug(mTag, "Product details id@token: " + productIdAndOfferIndexArray + " === " + productId + "@" + offerToken + " ... " + productDetails.toString());
     }
     else {
       productDetailsParamsList.add(ProductDetailsParams.newBuilder()
@@ -880,17 +887,17 @@ public final class PurchasePlugin
       BillingFlowParams.SubscriptionUpdateParams.newBuilder();
     Boolean hasSubscriptionUpdateParams = false;
 
-    Log.d(mTag, "buy() -> setProductDetailsParamsList");
+    mLogger.debug(mTag, "buy() -> setProductDetailsParamsList");
     params.setProductDetailsParamsList(productDetailsParamsList);
     // params.setProductDetails(productDetails);
     // NOTE: This has been removed in billing library v4, use oldPurchaseToken now.
     // if (oldSku != null && oldPurchaseToken != null) {
-    //   Log.d(mTag, "buy() -> setOldSku");
+    //   mLogger.debug(mTag, "buy() -> setOldSku");
     //   params.setOldSku(oldSku, oldPurchaseToken);
     // }
 
     if (oldPurchaseToken != null) {
-      Log.d(mTag, "buy() -> setOldSkuPurchaseToken");
+      mLogger.debug(mTag, "buy() -> setOldSkuPurchaseToken");
       subscriptionUpdateParams.setOldPurchaseToken(oldPurchaseToken);
       hasSubscriptionUpdateParams = true;
     }
@@ -898,7 +905,7 @@ public final class PurchasePlugin
     // accountId and profileId are used to detect fraud.
     // see https://developer.android.com/google/play/billing/security#fraud
     if (accountId != null) {
-      Log.d(mTag, "buy() -> setObfuscatedAccountId");
+      mLogger.debug(mTag, "buy() -> setObfuscatedAccountId");
       // Google renamed setAccountId to setObfuscatedAccountId.
       // the plugin was already obfuscating the accountId
       // as md5(applicationUsername) => we can keep the same parameter.
@@ -909,13 +916,13 @@ public final class PurchasePlugin
     // account. Use this method to send the user's profile identifier to
     // Google.
     if (profileId != null) {
-      Log.d(mTag, "buy() -> setObfuscatedProfileId");
+      mLogger.debug(mTag, "buy() -> setObfuscatedProfileId");
       params.setObfuscatedProfileId(profileId);
     }
 
     // Google removed setDeveloperId
     // if (developerId != null) {
-    //   Log.d(mTag, "buy() -> setDeveloperId");
+    //   mLogger.debug(mTag, "buy() -> setDeveloperId");
     //   params.setDeveloperId(developerId);
     // }
 
@@ -949,7 +956,7 @@ public final class PurchasePlugin
 
   /** Subscribe to an item. */
   private void subscribe(JSONArray data) throws JSONException {
-    Log.d(mTag, "subscribe()");
+    mLogger.debug(mTag, "subscribe()");
     if (!areSubscriptionsSupported()) {
       callError(Constants.ERR_PURCHASE, "FEATURE_NOT_SUPPORTED");
       return;
@@ -959,40 +966,40 @@ public final class PurchasePlugin
 
   /** Buy an item. */
   private void buy(JSONArray data) throws JSONException {
-    Log.d(mTag, "buy()");
+    mLogger.debug(mTag, "buy()");
     initiatePurchaseFlow(parseBillingFlowParams(data));
   }
 
   /** Start a purchase or subscription replace flow. */
   public void initiatePurchaseFlow(final BillingFlowParams params) {
-    Log.d(mTag, "initiatePurchaseFlow()");
+    mLogger.debug(mTag, "initiatePurchaseFlow()");
     if (params == null) {
       return;
     }
     final Activity activity = cordova.getActivity();
     if (activity == null || activity.isFinishing()) {
-        Log.e(mTag, "Activity is null or finishing, cannot launch billing flow.");
+        mLogger.error(mTag, "Activity is null or finishing, cannot launch billing flow.");
         callError(Constants.ERR_COMMUNICATION, "Activity not available to launch billing flow.");
         return;
     }
     executeServiceRequest(() -> {
       if (getLastResponseCode() != BillingResponseCode.OK) {
-        Log.d(mTag, "initiatePurchaseFlow() -> Failed: "
+        mLogger.debug(mTag, "initiatePurchaseFlow() -> Failed: "
             + "Failed to execute service request. " + format(getLastResult()));
         callError(Constants.ERR_COMMUNICATION,
             "Failed to execute service request. " + format(getLastResult()));
         return;
       }
-      Log.d(mTag, "Attempting to launch billing flow on UI thread.");
+      mLogger.debug(mTag, "Attempting to launch billing flow on UI thread.");
       cordova.setActivityResultCallback(this);
       // Ensure the actual launch call is on the UI thread
       activity.runOnUiThread(() -> {
-        Log.d(mTag, "launchBillingFlow happening now.");
+        mLogger.debug(mTag, "launchBillingFlow happening now.");
         BillingResult billingResult = mBillingClient.launchBillingFlow(activity, params);
         // Log the immediate result (though the main result comes via listener)
-        Log.d(mTag, "launchBillingFlow immediate result: " + format(billingResult));
+        mLogger.debug(mTag, "launchBillingFlow immediate result: " + format(billingResult));
         if (billingResult.getResponseCode() != BillingResponseCode.OK) {
-           Log.e(mTag, "launchBillingFlow failed immediately with code: " + format(billingResult));
+           mLogger.error(mTag, "launchBillingFlow failed immediately with code: " + format(billingResult));
            // Potentially callError here if appropriate, though onPurchasesUpdated usually handles final state
         }
       });
@@ -1003,7 +1010,7 @@ public final class PurchasePlugin
   @Override
   public void onActivityResult(int requestCode, int resultCode, Intent data) {
     try{
-      Log.d(mTag, "onActivityResult("
+      mLogger.debug(mTag, "onActivityResult("
           + requestCode + ","
           + resultCode + ","
           + data + ")");
@@ -1013,32 +1020,32 @@ public final class PurchasePlugin
         // not handled, so handle it ourselves (here's where you'd
         // perform any handling of activity results not related to in-app
         // billing...
-      Log.d(mTag, "onActivityResult() -> super.onActivityResult()");
+      mLogger.debug(mTag, "onActivityResult() -> super.onActivityResult()");
         super.onActivityResult(requestCode, resultCode, data);
       // }
       // else {
-      //  Log.d(mTag, "onActivityResult handled by IABUtil.");
+      //  mLogger.debug(mTag, "onActivityResult handled by IABUtil.");
       // }
     } catch (Exception e) {
-      Log.e(mTag, "onActivityResult() -> Failed: " + e.getMessage());
+      mLogger.error(mTag, "onActivityResult() -> Failed: " + e.getMessage());
       callError(Constants.ERR_UNKNOWN, e.getMessage());
     }
   }
 
   // Consume a purchase
   private void consumePurchase(final String purchaseToken) throws JSONException {
-    Log.d(mTag, "consumePurchase(" + purchaseToken + ")");
+    mLogger.debug(mTag, "consumePurchase(" + purchaseToken + ")");
     // Find the purchaseToken from sku
     // final Purchase purchase = findPurchaseByProductId(productId);
     // if (purchase == null) {
-    //   Log.w(mTag, "consumePurchase() -> No such purchase");
+    //   mLogger.warning(mTag, "consumePurchase() -> No such purchase");
     //   callError(Constants.ERR_PURCHASE, "ITEM_NOT_OWNED");
     //   return;
     // }
     // final String purchaseToken = purchase.getPurchaseToken();
 
     if (mTokensToBeConsumed.contains(purchaseToken)) {
-      Log.i(mTag, "consumePurchase() -> Consume already in progress.");
+      mLogger.info(mTag, "consumePurchase() -> Consume already in progress.");
       callError(Constants.ERR_PURCHASE, "ITEM_ALREADY_CONSUMED");
       return;
     }
@@ -1053,11 +1060,11 @@ public final class PurchasePlugin
 
   // Acknowledge a purchase
   private void acknowledgePurchase(final String purchaseToken) throws JSONException {
-    Log.d(mTag, "acknowledgePurchase(" + purchaseToken + ")");
+    mLogger.debug(mTag, "acknowledgePurchase(" + purchaseToken + ")");
     // Find the purchaseToken from sku
     // final Purchase purchase = findPurchaseByProductId(sku);
     // if (purchase == null) {
-    //   Log.w(mTag, "acknowledgePurchase() -> No such purchase");
+    //   mLogger.warning(mTag, "acknowledgePurchase() -> No such purchase");
     //   callError(Constants.ERR_PURCHASE, "ITEM_NOT_OWNED");
     //   return;
     // }
@@ -1075,11 +1082,11 @@ public final class PurchasePlugin
   @Override
   public void onAcknowledgePurchaseResponse(BillingResult result) {
     if (result.getResponseCode() == BillingResponseCode.OK) {
-      Log.d(mTag, "onAcknowledgePurchaseResponse() -> Success");
+      mLogger.debug(mTag, "onAcknowledgePurchaseResponse() -> Success");
       callSuccess();
     }
     else {
-      Log.d(mTag, "onAcknowledgePurchaseResponse() -> Failed: "
+      mLogger.debug(mTag, "onAcknowledgePurchaseResponse() -> Failed: "
           + format(result));
       callError(Constants.ERR_FINISH, format(result));
     }
@@ -1091,10 +1098,10 @@ public final class PurchasePlugin
   https://developer.android.com/reference/com/android/billingclient/api/PriceChangeFlowParams.Builder
 
   public void launchPriceChangeConfirmationFlow(String skuId) {
-    Log.d(mTag, "launchPriceChangeConfirmationFlow(" + skuId + ")");
+    mLogger.debug(mTag, "launchPriceChangeConfirmationFlow(" + skuId + ")");
     final ProductDetails productDetails = mProductDetails.get(skuId);
     if (productDetails == null) {
-      Log.d(mTag, "launchPriceChangeConfirmationFlow() -> Failed: Product not registered: " + skuId);
+      mLogger.debug(mTag, "launchPriceChangeConfirmationFlow() -> Failed: Product not registered: " + skuId);
       sendToListener("onPriceChangeConfirmationResultUnknownSku", new JSONObject());
       return;
     }
@@ -1123,13 +1130,13 @@ public final class PurchasePlugin
   // Called when the activity receives a new intent.
   @Override
   public void onNewIntent(Intent intent) {
-    Log.d(mTag, "onNewIntent()");
+    mLogger.debug(mTag, "onNewIntent()");
   }
 
   // Called when the activity is no longer visible to the user.
   @Override
   public void onStop() {
-    Log.d(mTag, "onStop()");
+    mLogger.debug(mTag, "onStop()");
   }
 
   // Last time the app queried for purchases when onStart was triggered.
@@ -1139,7 +1146,7 @@ public final class PurchasePlugin
   // Called when the activity is becoming visible to the user.
   @Override
   public void onStart() {
-    Log.d(mTag, "onStart()");
+    mLogger.debug(mTag, "onStart()");
     if (mBillingClient != null) {
         long now = Calendar.getInstance().getTimeInMillis();
         if (now - mLastQueryOnStart > 24 * 60 * 60 * 1000) {
@@ -1153,20 +1160,20 @@ public final class PurchasePlugin
   @Override
   public void onConsumeResponse(BillingResult result, String purchaseToken) {
     try {
-      Log.d(mTag, "onConsumeResponse()");
+      mLogger.debug(mTag, "onConsumeResponse()");
       if (result.getResponseCode() == BillingResponseCode.OK) {
         mTokensToBeConsumed.remove(purchaseToken);
         final Purchase purchase = findPurchaseByToken(purchaseToken);
-        Log.d(mTag, "onConsumeResponse() -> Success");
+        mLogger.debug(mTag, "onConsumeResponse() -> Success");
         sendToListener("purchaseConsumed", new JSONObject()
             .put("purchase", toJSON(purchase)));
         callSuccess();
       } else {
-        Log.d(mTag, result.getDebugMessage());
+        mLogger.debug(mTag, result.getDebugMessage());
         callError(Constants.ERR_FINISH, result.getDebugMessage());
       }
     } catch (JSONException e) {
-      Log.d(mTag, "onConsumeResponse() -> Failed: " + e.getMessage());
+      mLogger.debug(mTag, "onConsumeResponse() -> Failed: " + e.getMessage());
       callError(Constants.ERR_UNKNOWN, e.getMessage());
     }
   }
@@ -1174,6 +1181,7 @@ public final class PurchasePlugin
   // We're being destroyed.
   @Override
   public void onDestroy() {
+    Logger.clearCallback();
     if (mBillingClient != null && mBillingClient.isReady()) {
       mBillingClient.endConnection();
     }
@@ -1187,7 +1195,7 @@ public final class PurchasePlugin
    * @param listener Code to run once data has been loaded
    */
   private void queryAllProductDetails(List<String> inAppProductIds, List<String> subsProductIds, final InternalProductDetailsResponseListener listener) {
-    Log.d(mTag, "queryAllProductDetails()");
+    mLogger.debug(mTag, "queryAllProductDetails()");
     ArrayList<ProductDetails> allProducts = new ArrayList<ProductDetails>();
 
     final int nRequests =
@@ -1203,24 +1211,24 @@ public final class PurchasePlugin
             final List<ProductDetails> productDetailsList) {
           mBillingClientResult = result;
           if (result.getResponseCode() != BillingResponseCode.OK) {
-            Log.w(mTag, "queryAllProductDetails() -> Failed: Unsuccessful query. "
+            mLogger.warning(mTag, "queryAllProductDetails() -> Failed: Unsuccessful query. "
                 + format(result));
             callError(Constants.ERR_LOAD, "Error. " + format(result));
           } else {
             if (productDetailsList != null && productDetailsList.size() > 0) {
               // Then fill all the other rows
               for (ProductDetails product : productDetailsList) {
-                Log.d(mTag, "queryAllProductDetails() -> ProductDetails: Title: "
+                mLogger.debug(mTag, "queryAllProductDetails() -> ProductDetails: Title: "
                     + product.getTitle());
                 mProductDetails.put(product.getProductId(), product);
                 allProducts.add(product);
               }
             } else {
-              Log.w(mTag, "queryAllProductDetails() -> Query returned nothing.");
+              mLogger.warning(mTag, "queryAllProductDetails() -> Query returned nothing.");
             }
             nProductDetailsQuerySuccessful++;
             if (nProductDetailsQuerySuccessful == nRequests && listener != null) {
-              Log.d(mTag, "queryAllProductDetails() -> Calling listener.");
+              mLogger.debug(mTag, "queryAllProductDetails() -> Calling listener.");
               listener.onProductDetailsResponse(result, allProducts);
             }
           }
@@ -1244,17 +1252,17 @@ public final class PurchasePlugin
     }
 
     if (subsList.size() > 0) {
-      Log.d(mTag, "queryAllProductDetails() -> Query SUBS.");
+      mLogger.debug(mTag, "queryAllProductDetails() -> Query SUBS.");
       queryProductDetailsAsync(subsList, queryListener);
     }
 
     if (inAppList.size() > 0) {
-      Log.d(mTag, "queryAllProductDetails() -> Query INAPP.");
+      mLogger.debug(mTag, "queryAllProductDetails() -> Query INAPP.");
       queryProductDetailsAsync(inAppList, queryListener);
     }
 
     if (inAppList.size() == 0 && subsList.size() == 0) {
-      Log.d(mTag, "queryAllProductDetails() -> Calling listener (0 requests).");
+      mLogger.debug(mTag, "queryAllProductDetails() -> Calling listener (0 requests).");
       if (listener != null) {
         listener.onProductDetailsResponse(getLastResult(), allProducts);
       }
@@ -1265,14 +1273,14 @@ public final class PurchasePlugin
       // @ProductType final String itemType,
       final List<Product> productList,
       final InternalProductDetailsResponseListener listener) {
-    Log.d(mTag, "queryProductDetailsAsync()");
+    mLogger.debug(mTag, "queryProductDetailsAsync()");
     executeServiceRequest(() -> {
       if (getLastResponseCode() != BillingResponseCode.OK) {
-        Log.d(mTag, "queryProductDetailsAsync() -> Failed: "
+        mLogger.debug(mTag, "queryProductDetailsAsync() -> Failed: "
             + format(getLastResult()));
         listener.onProductDetailsResponse(getLastResult(), null);
       } else {
-        Log.d(mTag, "queryProductDetailsAsync() -> Success");
+        mLogger.debug(mTag, "queryProductDetailsAsync() -> Success");
         QueryProductDetailsParams.Builder params = QueryProductDetailsParams.newBuilder();
         params.setProductList(productList)/* .setType(itemType) */;
         // Billing Library 8.x uses QueryProductDetailsResult instead of List<ProductDetails>
@@ -1306,7 +1314,7 @@ public final class PurchasePlugin
   }
 
   private void callError(final int code, final String msg) {
-    Log.d(mTag, "callError({code:" + code + ", msg:\"" + msg + "\")");
+    mLogger.debug(mTag, "callError({code:" + code + ", msg:\"" + msg + "\")");
     if (mCallbackContext == null) {
       return;
     }
@@ -1322,7 +1330,7 @@ public final class PurchasePlugin
    *
    * @param executeOnSuccess Some code to run once connected. */
   public void startServiceConnection(final Runnable executeOnSuccess, final Runnable executeOnFailure) {
-    Log.d(mTag, "startServiceConnection()");
+    mLogger.debug(mTag, "startServiceConnection()");
     mBillingClient.startConnection(new BillingClientStateListener() {
       @Override
       public void onBillingSetupFinished(final BillingResult result) {
@@ -1342,18 +1350,18 @@ public final class PurchasePlugin
       }
 
       private void onBillingConnectionSuccess() {
-        Log.d(mTag, "startServiceConnection() -> Success");
+        mLogger.debug(mTag, "startServiceConnection() -> Success");
         mIsServiceConnected = true;
       }
 
       private void onBillingConnectionFailed() {
-        Log.d(mTag, "startServiceConnection() -> Failed: " + format(getLastResult()));
+        mLogger.debug(mTag, "startServiceConnection() -> Failed: " + format(getLastResult()));
         mIsServiceConnected = false;
       }
 
       @Override
       public void onBillingServiceDisconnected() {
-        Log.d(mTag, "startServiceConnection() -> Disconnected");
+        mLogger.debug(mTag, "startServiceConnection() -> Disconnected");
         mIsServiceConnected = false;
       }
     });
@@ -1361,15 +1369,15 @@ public final class PurchasePlugin
 
   private void executeServiceRequest(final Runnable runnable) {
     if (mIsServiceConnected) {
-      Log.d(mTag, "executeServiceRequest() -> OK");
+      mLogger.debug(mTag, "executeServiceRequest() -> OK");
       resetLastResult(BillingResponseCode.OK);
       runnable.run();
     } else {
       // If billing service was disconnected, we try to reconnect 1 time.
       // (feel free to introduce your retry policy here).
-      Log.d(mTag, "executeServiceRequest() -> Failed (try again).");
+      mLogger.debug(mTag, "executeServiceRequest() -> Failed (try again).");
       startServiceConnection(runnable, () -> {
-        Log.d(mTag, "executeServiceRequest() -> Failed to reconnect to billing server...");
+        mLogger.debug(mTag, "executeServiceRequest() -> Failed to reconnect to billing server...");
       });
     }
   }

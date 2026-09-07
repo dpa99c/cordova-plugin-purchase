@@ -25,6 +25,12 @@
 #import <UIKit/UIKit.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <Security/Security.h>
+#import "Logger.h"
+
+@interface RMAppReceipt ()
++ (NSData*)dataFromPKCS7Data:(NSData*)pkcs7Data;
++ (NSData*)validatePKCS7:(NSData*)pkcs7Data withAppleRootCertificate:(SecCertificateRef)appleRootCert;
+@end
 
 // Enable for detailed PKCS#7 parsing logs
 #define RM_PKCS7_DEBUG 0
@@ -178,20 +184,20 @@ static BOOL RMReadTagAndLength(RMByteRange *range, int *outTag, long *outLength)
 {
     if (range->p >= range->end) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] RMReadTagAndLength: p >= end");
+        [Logger debug:@"[RMReceipt] RMReadTagAndLength: p >= end"];
 #endif
         return NO;
     }
     *outTag = RMASN1ReadTag(&range->p, outLength, range->end);
     if (*outTag < 0) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] RMReadTagAndLength: failed to read tag");
+        [Logger debug:@"[RMReceipt] RMReadTagAndLength: failed to read tag"];
 #endif
         return NO;
     }
     if (range->p + *outLength > range->end) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] RMReadTagAndLength: content overflow (p+%ld > end, diff=%ld)", *outLength, (long)(range->p + *outLength - range->end));
+        [Logger debug:@"[RMReceipt] RMReadTagAndLength: content overflow (p+%ld > end, diff=%ld)", *outLength, (long)(range->p + *outLength - range->end)];
 #endif
         return NO;
     }
@@ -205,7 +211,7 @@ static NSData* RMReadOID(RMByteRange *range)
     if (!RMReadTagAndLength(range, &tag, &length)) return nil;
     if (tag != RM_ASN1_OID) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] RMReadOID: expected OID (0x06) got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] RMReadOID: expected OID (0x06) got tag=0x%02X", tag];
 #endif
         return nil;
     }
@@ -230,7 +236,7 @@ static NSData* RMReadOctetString(RMByteRange *range)
     if (!RMReadTagAndLength(range, &tag, &length)) return nil;
     if (tag != RM_ASN1_OCTET_STRING) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] RMReadOctetString: expected OCTET STRING (0x04) got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] RMReadOctetString: expected OCTET STRING (0x04) got tag=0x%02X", tag];
 #endif
         return nil;
     }
@@ -247,7 +253,7 @@ static NSData* RMExtractContentFromPKCS7(NSData *pkcs7Data)
     const uint8_t *end = p + pkcs7Data.length;
 
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] RMExtractContentFromPKCS7: data length=%lu", (unsigned long)pkcs7Data.length);
+    [Logger debug:@"[RMReceipt] RMExtractContentFromPKCS7: data length=%lu", (unsigned long)pkcs7Data.length];
 #endif
 
     long len; int tag;
@@ -256,13 +262,13 @@ static NSData* RMExtractContentFromPKCS7(NSData *pkcs7Data)
     tag = RMASN1ReadTag(&p, &len, end);
     if (tag != RM_ASN1_SEQUENCE) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 1: expected SEQUENCE, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] FAIL step 1: expected SEQUENCE, got tag=0x%02X", tag];
 #endif
         return nil;
     }
     const uint8_t *contentInfoEnd = p + len;
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] Step 1 OK: ContentInfo SEQUENCE len=%ld", len);
+    [Logger debug:@"[RMReceipt] Step 1 OK: ContentInfo SEQUENCE len=%ld", len];
 #endif
 
     // 2. ContentType OID
@@ -270,35 +276,35 @@ static NSData* RMExtractContentFromPKCS7(NSData *pkcs7Data)
     NSData *oid = RMReadOID(&ci);
     if (!oid) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 2: could not read OID");
+        [Logger debug:@"[RMReceipt] FAIL step 2: could not read OID"];
 #endif
         return nil;
     }
     if (!RMOIDEquals(oid, kOID_signedData, sizeof(kOID_signedData))) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 2: OID is not signedData");
+        [Logger debug:@"[RMReceipt] FAIL step 2: OID is not signedData"];
 #endif
         return nil;
     }
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] Step 2 OK: OID = signedData");
+    [Logger debug:@"[RMReceipt] Step 2 OK: OID = signedData"];
 #endif
 
     // 3. [0] EXPLICIT SignedData
     if (!RMReadTagAndLength(&ci, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 3: cannot read [0] EXPLICIT");
+        [Logger debug:@"[RMReceipt] FAIL step 3: cannot read [0] EXPLICIT"];
 #endif
         return nil;
     }
     if (tag != 0xA0) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 3: expected [0] (0xA0), got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] FAIL step 3: expected [0] (0xA0), got tag=0x%02X", tag];
 #endif
         return nil;
     }
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] Step 3 OK: [0] EXPLICIT len=%ld", len);
+    [Logger debug:@"[RMReceipt] Step 3 OK: [0] EXPLICIT len=%ld", len];
 #endif
 
     RMByteRange sd = { ci.p, ci.p + len };
@@ -306,67 +312,67 @@ static NSData* RMExtractContentFromPKCS7(NSData *pkcs7Data)
     // 4. SignedData SEQUENCE
     if (!RMReadTagAndLength(&sd, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 4: cannot read SignedData SEQUENCE");
+        [Logger debug:@"[RMReceipt] FAIL step 4: cannot read SignedData SEQUENCE"];
 #endif
         return nil;
     }
     if (tag != RM_ASN1_SEQUENCE) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 4: expected SEQUENCE, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] FAIL step 4: expected SEQUENCE, got tag=0x%02X", tag];
 #endif
         return nil;
     }
     sd.end = sd.p + len;
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] Step 4 OK: SignedData SEQUENCE len=%ld", len);
+    [Logger debug:@"[RMReceipt] Step 4 OK: SignedData SEQUENCE len=%ld", len];
 #endif
 
     // 5. Version
     if (!RMSkipElement(&sd)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 5: cannot skip version");
+        [Logger debug:@"[RMReceipt] FAIL step 5: cannot skip version"];
 #endif
         return nil;
     }
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] Step 5 OK: version skipped, remaining=%ld", (long)(sd.end - sd.p));
+    [Logger debug:@"[RMReceipt] Step 5 OK: version skipped, remaining=%ld", (long)(sd.end - sd.p)];
 #endif
 
     // 6. DigestAlgorithms SET (skip entirely)
     if (!RMSkipElement(&sd)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 6: cannot skip DigestAlgorithms SET");
+        [Logger debug:@"[RMReceipt] FAIL step 6: cannot skip DigestAlgorithms SET"];
 #endif
         return nil;
     }
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] Step 6 OK: digest algorithms skipped, remaining=%ld", (long)(sd.end - sd.p));
+    [Logger debug:@"[RMReceipt] Step 6 OK: digest algorithms skipped, remaining=%ld", (long)(sd.end - sd.p)];
 #endif
 
     // 7. Embedded ContentInfo SEQUENCE
     if (!RMReadTagAndLength(&sd, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 7: cannot read inner ContentInfo SEQUENCE");
+        [Logger debug:@"[RMReceipt] FAIL step 7: cannot read inner ContentInfo SEQUENCE"];
 #endif
         return nil;
     }
     if (tag != RM_ASN1_SEQUENCE) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 7: expected SEQUENCE, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] FAIL step 7: expected SEQUENCE, got tag=0x%02X", tag];
 #endif
         return nil;
     }
     RMByteRange innerCI = { sd.p, sd.p + len };
     sd.p += len;
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] Step 7 OK: inner ContentInfo SEQUENCE len=%ld", len);
+    [Logger debug:@"[RMReceipt] Step 7 OK: inner ContentInfo SEQUENCE len=%ld", len];
 #endif
 
     // 8. Inner ContentType OID (should be "data")
     oid = RMReadOID(&innerCI);
     if (!oid) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 8: could not read inner OID");
+        [Logger debug:@"[RMReceipt] FAIL step 8: could not read inner OID"];
 #endif
         return nil;
     }
@@ -375,7 +381,7 @@ static NSData* RMExtractContentFromPKCS7(NSData *pkcs7Data)
         const uint8_t *ob = oid.bytes;
         NSMutableString *hs = [NSMutableString string];
         for (NSUInteger i = 0; i < oid.length; i++) [hs appendFormat:@"%02x ", ob[i]];
-        NSLog(@"[RMReceipt] Step 8 OK: inner OID = %@", hs);
+        [Logger debug:@"[RMReceipt] Step 8 OK: inner OID = %@", hs];
     }
 #endif
 
@@ -385,12 +391,12 @@ static NSData* RMExtractContentFromPKCS7(NSData *pkcs7Data)
     if (innerCI.p < innerCI.end) {
         if (!RMReadTagAndLength(&innerCI, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-            NSLog(@"[RMReceipt] FAIL step 9: cannot read content wrapper tag");
+            [Logger debug:@"[RMReceipt] FAIL step 9: cannot read content wrapper tag"];
 #endif
             return nil;
         }
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] Step 9: content wrapper tag=0x%02X len=%ld", tag, len);
+        [Logger debug:@"[RMReceipt] Step 9: content wrapper tag=0x%02X len=%ld", tag, len];
 #endif
         if (tag == 0xA0 || tag == 0x80) {
             // [0] EXPLICIT or [0] PRIMITIVE wrapper (PKCS#7 standard)
@@ -405,13 +411,13 @@ static NSData* RMExtractContentFromPKCS7(NSData *pkcs7Data)
 
     if (!contentData) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] FAIL step 9: could not extract content data");
+        [Logger debug:@"[RMReceipt] FAIL step 9: could not extract content data"];
 #endif
         return nil;
     }
 
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] RMExtractContentFromPKCS7 SUCCESS: content len=%lu", (unsigned long)contentData.length);
+    [Logger debug:@"[RMReceipt] RMExtractContentFromPKCS7 SUCCESS: content len=%lu", (unsigned long)contentData.length];
 #endif
     return contentData;
 }
@@ -429,7 +435,7 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
     const uint8_t *end = p + pkcs7Data.length;
 
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] RMVerifyPKCS7Signature: data length=%lu", (unsigned long)pkcs7Data.length);
+    [Logger debug:@"[RMReceipt] RMVerifyPKCS7Signature: data length=%lu", (unsigned long)pkcs7Data.length];
 #endif
 
     long len; int tag;
@@ -438,13 +444,13 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
     tag = RMASN1ReadTag(&p, &len, end);
     if (tag != RM_ASN1_SEQUENCE) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 1: expected SEQUENCE, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 1: expected SEQUENCE, got tag=0x%02X", tag];
 #endif
         return nil;
     }
     const uint8_t *contentInfoEnd = p + len;
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY Step 1 OK: ContentInfo SEQUENCE len=%ld", len);
+    [Logger debug:@"[RMReceipt] VERIFY Step 1 OK: ContentInfo SEQUENCE len=%ld", len];
 #endif
 
     // 2. ContentType OID (must be signedData)
@@ -452,72 +458,72 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
     NSData *oid = RMReadOID(&ci);
     if (!oid || !RMOIDEquals(oid, kOID_signedData, sizeof(kOID_signedData))) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 2: OID mismatch");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 2: OID mismatch"];
 #endif
         return nil;
     }
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY Step 2 OK: OID = signedData");
+    [Logger debug:@"[RMReceipt] VERIFY Step 2 OK: OID = signedData"];
 #endif
 
     // 3. [0] EXPLICIT SignedData
     if (!RMReadTagAndLength(&ci, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 3: cannot read [0]");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 3: cannot read [0]"];
 #endif
         return nil;
     }
     if (tag != 0xA0) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 3: expected [0] (0xA0), got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 3: expected [0] (0xA0), got tag=0x%02X", tag];
 #endif
         return nil;
     }
     const uint8_t *signedDataEnd = ci.p + len;
     ci.end = signedDataEnd;
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY Step 3 OK: [0] EXPLICIT len=%ld", len);
+    [Logger debug:@"[RMReceipt] VERIFY Step 3 OK: [0] EXPLICIT len=%ld", len];
 #endif
 
     // 4. SignedData SEQUENCE
     if (!RMReadTagAndLength(&ci, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 4: cannot read SignedData SEQUENCE");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 4: cannot read SignedData SEQUENCE"];
 #endif
         return nil;
     }
     if (tag != RM_ASN1_SEQUENCE) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 4: expected SEQUENCE, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 4: expected SEQUENCE, got tag=0x%02X", tag];
 #endif
         return nil;
     }
     ci.end = ci.p + len;
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY Step 4 OK: SignedData SEQUENCE len=%ld", len);
+    [Logger debug:@"[RMReceipt] VERIFY Step 4 OK: SignedData SEQUENCE len=%ld", len];
 #endif
 
     // 5. Version
     if (!RMSkipElement(&ci)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 5: cannot skip version");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 5: cannot skip version"];
 #endif
         return nil;
     }
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY Step 5 OK: version skipped, remaining=%ld", (long)(ci.end - ci.p));
+    [Logger debug:@"[RMReceipt] VERIFY Step 5 OK: version skipped, remaining=%ld", (long)(ci.end - ci.p)];
 #endif
 
     // 6. DigestAlgorithms SET -> determine algorithm
     if (!RMReadTagAndLength(&ci, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 6: cannot read DigestAlgorithms SET");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 6: cannot read DigestAlgorithms SET"];
 #endif
         return nil;
     }
     if (tag != RM_ASN1_SET) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 6: expected SET (0x31), got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 6: expected SET (0x31), got tag=0x%02X", tag];
 #endif
         return nil;
     }
@@ -528,13 +534,13 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
     RMByteRange da = daSet;
     if (!RMReadTagAndLength(&da, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 6a: cannot read DigestAlgorithm SEQUENCE");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 6a: cannot read DigestAlgorithm SEQUENCE"];
 #endif
         return nil;
     }
     if (tag != RM_ASN1_SEQUENCE) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 6a: expected SEQUENCE, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 6a: expected SEQUENCE, got tag=0x%02X", tag];
 #endif
         return nil;
     }
@@ -548,19 +554,19 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
         : kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA1;
     if (outAlgorithm) *outAlgorithm = verifyAlgorithm;
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY Step 6 OK: digest algo = %@", useSHA256 ? @"SHA256" : @"SHA1");
+    [Logger debug:@"[RMReceipt] VERIFY Step 6 OK: digest algo = %@", useSHA256 ? @"SHA256" : @"SHA1"];
 #endif
 
     // 7. Embedded ContentInfo -> extract receipt content
     if (!RMReadTagAndLength(&ci, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 7: cannot read inner ContentInfo SEQUENCE");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 7: cannot read inner ContentInfo SEQUENCE"];
 #endif
         return nil;
     }
     if (tag != RM_ASN1_SEQUENCE) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 7: expected SEQUENCE, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 7: expected SEQUENCE, got tag=0x%02X", tag];
 #endif
         return nil;
     }
@@ -572,7 +578,7 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
         const uint8_t *ob = oid.bytes;
         NSMutableString *hs = [NSMutableString string];
         for (NSUInteger i = 0; i < oid.length; i++) [hs appendFormat:@"%02x ", ob[i]];
-        NSLog(@"[RMReceipt] VERIFY Step 7 OK: inner ContentInfo SEQUENCE len=%ld, OID=%@", len, hs);
+        [Logger debug:@"[RMReceipt] VERIFY Step 7 OK: inner ContentInfo SEQUENCE len=%ld, OID=%@", len, hs];
     }
 #endif
 
@@ -580,12 +586,12 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
     if (innerCI.p < innerCI.end) {
         if (!RMReadTagAndLength(&innerCI, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-            NSLog(@"[RMReceipt] VERIFY FAIL step 7a: cannot read content wrapper");
+            [Logger debug:@"[RMReceipt] VERIFY FAIL step 7a: cannot read content wrapper"];
 #endif
             return nil;
         }
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY Step 7a: content wrapper tag=0x%02X len=%ld", tag, len);
+        [Logger debug:@"[RMReceipt] VERIFY Step 7a: content wrapper tag=0x%02X len=%ld", tag, len];
 #endif
         if (tag == 0xA0 || tag == 0x80) {
             // [0] EXPLICIT or [0] PRIMITIVE wrapper (PKCS#7 standard)
@@ -599,12 +605,12 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
     }
     if (!contentData) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 7b: could not extract content data");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 7b: could not extract content data"];
 #endif
         return nil;
     }
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY Step 7 OK: extracted content len=%lu", (unsigned long)contentData.length);
+    [Logger debug:@"[RMReceipt] VERIFY Step 7 OK: extracted content len=%lu", (unsigned long)contentData.length];
 #endif
 
     // 8. Certificates [0] IMPLICIT - extract ALL certificates for chain building
@@ -612,7 +618,7 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
         const uint8_t *savedP = ci.p;
         if (!RMReadTagAndLength(&ci, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-            NSLog(@"[RMReceipt] VERIFY WARNING step 8: cannot read certificates block");
+            [Logger debug:@"[RMReceipt] VERIFY WARNING step 8: cannot read certificates block"];
 #endif
             ci.p = savedP;
         } else if (tag == 0xA0) {
@@ -629,7 +635,7 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
                         *outSignerCertData = certData;
                     }
 #if RM_PKCS7_DEBUG
-                    NSLog(@"[RMReceipt] VERIFY Step 8: found cert len=%lu", (unsigned long)certData.length);
+                    [Logger debug:@"[RMReceipt] VERIFY Step 8: found cert len=%lu", (unsigned long)certData.length];
 #endif
                 }
                 certs.p += certLen;
@@ -637,45 +643,45 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
             ci.p = certs.end;
         } else {
 #if RM_PKCS7_DEBUG
-            NSLog(@"[RMReceipt] VERIFY Step 8: no certificates [0] tag (tag=0x%02X), restoring position", tag);
+            [Logger debug:@"[RMReceipt] VERIFY Step 8: no certificates [0] tag (tag=0x%02X), restoring position", tag];
 #endif
             ci.p = savedP;
         }
     }
 #if RM_PKCS7_DEBUG
     else {
-        NSLog(@"[RMReceipt] VERIFY Step 8: no data remaining for certificates");
+        [Logger debug:@"[RMReceipt] VERIFY Step 8: no data remaining for certificates"];
     }
 #endif
 
     // 9. SignerInfos SET
     if (!RMReadTagAndLength(&ci, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9: cannot read SignerInfos SET");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9: cannot read SignerInfos SET"];
 #endif
         return nil;
     }
     if (tag != RM_ASN1_SET) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9: expected SET, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9: expected SET, got tag=0x%02X", tag];
 #endif
         return nil;
     }
     RMByteRange signerSet = { ci.p, ci.p + len };
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY Step 9 OK: SignerInfos SET len=%ld", len);
+    [Logger debug:@"[RMReceipt] VERIFY Step 9 OK: SignerInfos SET len=%ld", len];
 #endif
 
     // First SignerInfo SEQUENCE
     if (!RMReadTagAndLength(&signerSet, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9a: cannot read SignerInfo SEQUENCE");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9a: cannot read SignerInfo SEQUENCE"];
 #endif
         return nil;
     }
     if (tag != RM_ASN1_SEQUENCE) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9a: expected SEQUENCE, got tag=0x%02X", tag);
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9a: expected SEQUENCE, got tag=0x%02X", tag];
 #endif
         return nil;
     }
@@ -683,19 +689,19 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
 
     if (!RMSkipElement(&signerSet)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9b: cannot skip SignerInfo version");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9b: cannot skip SignerInfo version"];
 #endif
         return nil;
     }
     if (!RMSkipElement(&signerSet)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9c: cannot skip IssuerAndSerialNumber");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9c: cannot skip IssuerAndSerialNumber"];
 #endif
         return nil;
     }
     if (!RMSkipElement(&signerSet)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9d: cannot skip DigestAlgorithm");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9d: cannot skip DigestAlgorithm"];
 #endif
         return nil;
     }
@@ -704,7 +710,7 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
     if (signerSet.p < signerSet.end) {
         if (!RMReadTagAndLength(&signerSet, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-            NSLog(@"[RMReceipt] VERIFY WARNING step 9e: cannot read SignedAttributes");
+            [Logger debug:@"[RMReceipt] VERIFY WARNING step 9e: cannot read SignedAttributes"];
 #endif
         } else if (tag == 0xA0) {
             if (outSignedAttrsContent) {
@@ -712,14 +718,14 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
             }
             signerSet.p += len;
 #if RM_PKCS7_DEBUG
-            NSLog(@"[RMReceipt] VERIFY Step 9e OK: SignedAttributes len=%ld", len);
+            [Logger debug:@"[RMReceipt] VERIFY Step 9e OK: SignedAttributes len=%ld", len];
 #endif
         }
     }
 
     if (!RMSkipElement(&signerSet)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9f: cannot skip SignatureAlgorithm");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9f: cannot skip SignatureAlgorithm"];
 #endif
         return nil;
     }
@@ -727,7 +733,7 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
     // Signature OCTET STRING
     if (!RMReadTagAndLength(&signerSet, &tag, &len)) {
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY FAIL step 9g: cannot read Signature");
+        [Logger debug:@"[RMReceipt] VERIFY FAIL step 9g: cannot read Signature"];
 #endif
         return nil;
     }
@@ -736,12 +742,12 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
             *outSignatureData = [NSData dataWithBytes:signerSet.p length:len];
         }
 #if RM_PKCS7_DEBUG
-        NSLog(@"[RMReceipt] VERIFY Step 9g OK: Signature len=%ld", len);
+        [Logger debug:@"[RMReceipt] VERIFY Step 9g OK: Signature len=%ld", len];
 #endif
     }
 
 #if RM_PKCS7_DEBUG
-    NSLog(@"[RMReceipt] VERIFY parsing complete, returning contentData len=%lu", (unsigned long)contentData.length);
+    [Logger debug:@"[RMReceipt] VERIFY parsing complete, returning contentData len=%lu", (unsigned long)contentData.length];
 #endif
     return contentData;
 }
@@ -847,11 +853,15 @@ static NSURL *_appleRootCertificateURL = nil;
     const BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:nil];
     if (!exists) return nil;
 
-    NSData *data = [RMAppReceipt dataFromPKCS7Path:path];
-    if (!data) return nil;
+    return [RMAppReceipt receiptWithPKCS7Data:[NSData dataWithContentsOfFile:path]];
+}
 
-    RMAppReceipt *receipt = [[RMAppReceipt alloc] initWithASN1Data:data];
-    return receipt;
++ (RMAppReceipt*)receiptWithPKCS7Data:(NSData*)pkcs7Data
+{
+    if (!pkcs7Data) return nil;
+    NSData *data = [self dataFromPKCS7Data:pkcs7Data];
+    if (!data) return nil;
+    return [[RMAppReceipt alloc] initWithASN1Data:data];
 }
 
 + (void)setAppleRootCertificateURL:(NSURL*)url
@@ -861,15 +871,14 @@ static NSURL *_appleRootCertificateURL = nil;
 
 #pragma mark - PKCS#7 Main Entry Point
 
-+ (NSData*)dataFromPKCS7Path:(NSString*)path
++ (NSData*)dataFromPKCS7Data:(NSData*)pkcs7Data
 {
-    NSData *pkcs7Data = [NSData dataWithContentsOfFile:path];
     if (!pkcs7Data) {
-        NSLog(@"[RMReceipt] dataFromPKCS7Path: could not read file at %@", path);
+        [Logger error:@"Could not read PKCS#7 receipt data"];
         return nil;
     }
 
-    NSLog(@"[RMReceipt] dataFromPKCS7Path: read %lu bytes from %@", (unsigned long)pkcs7Data.length, path);
+    [Logger debug:@"Read %lu bytes from PKCS#7 receipt data", (unsigned long)pkcs7Data.length];
 
     // Try to load the Apple Root Certificate
     NSURL *certificateURL = _appleRootCertificateURL ? : [[NSBundle mainBundle] URLForResource:@"AppleIncRootCertificate" withExtension:@"cer"];
@@ -877,37 +886,37 @@ static NSURL *_appleRootCertificateURL = nil;
 
     if (certificateData)
     {
-        NSLog(@"[RMReceipt] Apple Root Certificate loaded: %lu bytes", (unsigned long)certificateData.length);
+        [Logger debug:@"[RMReceipt] Apple Root Certificate loaded: %lu bytes", (unsigned long)certificateData.length];
         SecCertificateRef appleRootCert = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)certificateData);
         if (appleRootCert)
         {
             NSData *verifiedContent = [self validatePKCS7:pkcs7Data withAppleRootCertificate:appleRootCert];
             CFRelease(appleRootCert);
             if (verifiedContent) {
-                NSLog(@"[RMReceipt] PKCS#7 verified successfully");
+                [Logger debug:@"[RMReceipt] PKCS#7 verified successfully"];
                 return verifiedContent;
             }
-            NSLog(@"[RMReceipt] PKCS#7 verification failed, falling back to extraction without verification");
+            [Logger debug:@"[RMReceipt] PKCS#7 verification failed, falling back to extraction without verification"];
         } else {
-            NSLog(@"[RMReceipt] Failed to create SecCertificate from Apple Root Certificate data");
+            [Logger debug:@"[RMReceipt] Failed to create SecCertificate from Apple Root Certificate data"];
         }
     } else {
-        NSLog(@"[RMReceipt] Apple Root Certificate not found at %@", certificateURL);
+        [Logger debug:@"[RMReceipt] Apple Root Certificate not found at %@", certificateURL];
     }
 
     // Fallback: extract content without verification
     NSData *fallbackContent = RMExtractContentFromPKCS7(pkcs7Data);
     if (fallbackContent) {
-        NSLog(@"[RMReceipt] Fallback extraction succeeded: %lu bytes", (unsigned long)fallbackContent.length);
+        [Logger debug:@"[RMReceipt] Fallback extraction succeeded: %lu bytes", (unsigned long)fallbackContent.length];
     } else {
-        NSLog(@"[RMReceipt] Fallback extraction FAILED");
+        [Logger debug:@"[RMReceipt] Fallback extraction FAILED"];
     }
     return fallbackContent;
 }
 
 + (NSData*)validatePKCS7:(NSData*)pkcs7Data withAppleRootCertificate:(SecCertificateRef)appleRootCert
 {
-    NSLog(@"[RMReceipt] validatePKCS7: starting verification");
+    [Logger debug:@"[RMReceipt] validatePKCS7: starting verification"];
 
     NSData *signerCertData = nil;
     NSData *signatureData = nil;
@@ -918,40 +927,40 @@ static NSURL *_appleRootCertificateURL = nil;
                                                   &signerCertData, &signatureData,
                                                   &signedAttrsContent, &algorithm);
     if (!contentData) {
-        NSLog(@"[RMReceipt] validatePKCS7: RMVerifyPKCS7Signature returned nil contentData");
+        [Logger debug:@"[RMReceipt] validatePKCS7: RMVerifyPKCS7Signature returned nil contentData"];
         return nil;
     }
     if (!signerCertData) {
-        NSLog(@"[RMReceipt] validatePKCS7: no signer certificate data");
+        [Logger debug:@"[RMReceipt] validatePKCS7: no signer certificate data"];
         return nil;
     }
     if (!signatureData) {
-        NSLog(@"[RMReceipt] validatePKCS7: no signature data");
+        [Logger debug:@"[RMReceipt] validatePKCS7: no signature data"];
         return nil;
     }
     if (!signedAttrsContent) {
-        NSLog(@"[RMReceipt] validatePKCS7: no signed attributes");
+        [Logger debug:@"[RMReceipt] validatePKCS7: no signed attributes"];
         return nil;
     }
 
-    NSLog(@"[RMReceipt] validatePKCS7: all components extracted. cert=%lu sig=%lu attrs=%lu content=%lu",
+    [Logger debug:@"[RMReceipt] validatePKCS7: all components extracted. cert=%lu sig=%lu attrs=%lu content=%lu",
           (unsigned long)signerCertData.length, (unsigned long)signatureData.length,
-          (unsigned long)signedAttrsContent.length, (unsigned long)contentData.length);
+          (unsigned long)signedAttrsContent.length, (unsigned long)contentData.length];
 
     // Determine digest parameters from algorithm
     BOOL useSHA256 = (algorithm == kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256);
     CC_LONG digestLength = useSHA256 ? CC_SHA256_DIGEST_LENGTH : CC_SHA1_DIGEST_LENGTH;
-    NSLog(@"[RMReceipt] validatePKCS7: using %@", useSHA256 ? @"SHA256" : @"SHA1");
+    [Logger debug:@"[RMReceipt] validatePKCS7: using %@", useSHA256 ? @"SHA256" : @"SHA1"];
 
     // --- Step A: Verify certificate chain ---
     SecCertificateRef signerCert = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)signerCertData);
     if (!signerCert) {
-        NSLog(@"[RMReceipt] validatePKCS7 FAIL A: could not create SecCertificate from signer cert data");
+        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL A: could not create SecCertificate from signer cert data"];
         return nil;
     }
 
     CFStringRef certSummary = SecCertificateCopySubjectSummary(signerCert);
-    NSLog(@"[RMReceipt] validatePKCS7: signer certificate subject = %@", (__bridge NSString*)certSummary);
+    [Logger debug:@"[RMReceipt] validatePKCS7: signer certificate subject = %@", (__bridge NSString*)certSummary];
     CFRelease(certSummary);
 
     // Extract ALL certificates from the PKCS#7 for chain building
@@ -1008,13 +1017,13 @@ static NSURL *_appleRootCertificateURL = nil;
             }
         }
     }
-    NSLog(@"[RMReceipt] validatePKCS7: building trust with %lu certificates", (unsigned long)allCerts.count);
+    [Logger debug:@"[RMReceipt] validatePKCS7: building trust with %lu certificates", (unsigned long)allCerts.count];
 
     SecPolicyRef policy = SecPolicyCreateBasicX509();
     SecTrustRef trust = NULL;
     OSStatus status = SecTrustCreateWithCertificates((__bridge CFArrayRef)allCerts, policy, &trust);
     if (status != errSecSuccess) {
-        NSLog(@"[RMReceipt] validatePKCS7 FAIL A: SecTrustCreateWithCertificates error %d", (int)status);
+        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL A: SecTrustCreateWithCertificates error %d", (int)status];
         CFRelease(signerCert);
         CFRelease(policy);
         return nil;
@@ -1026,14 +1035,14 @@ static NSURL *_appleRootCertificateURL = nil;
     CFErrorRef trustError = NULL;
     BOOL trusted = SecTrustEvaluateWithError(trust, &trustError);
     if (!trusted) {
-        NSLog(@"[RMReceipt] validatePKCS7 FAIL A: certificate trust evaluation failed: %@", trustError);
+        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL A: certificate trust evaluation failed: %@", trustError];
         if (trustError) CFRelease(trustError);
         CFRelease(trust);
         CFRelease(signerCert);
         CFRelease(policy);
         return nil;
     }
-    NSLog(@"[RMReceipt] validatePKCS7 Step A OK: certificate chain trusted");
+    [Logger debug:@"[RMReceipt] validatePKCS7 Step A OK: certificate chain trusted"];
 
     // --- Step B: Verify message digest in signedAttrs matches content ---
     RMByteRange sa = { signedAttrsContent.bytes, (const uint8_t*)signedAttrsContent.bytes + signedAttrsContent.length };
@@ -1042,11 +1051,11 @@ static NSURL *_appleRootCertificateURL = nil;
     while (sa.p < sa.end) {
         int saTag; long saLen;
         if (!RMReadTagAndLength(&sa, &saTag, &saLen)) {
-            NSLog(@"[RMReceipt] validatePKCS7 FAIL B: cannot read signedAttrs SEQUENCE at offset %ld", (long)(sa.p - (const uint8_t*)signedAttrsContent.bytes));
+            [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: cannot read signedAttrs SEQUENCE at offset %ld", (long)(sa.p - (const uint8_t*)signedAttrsContent.bytes)];
             break;
         }
         if (saTag != RM_ASN1_SEQUENCE) {
-            NSLog(@"[RMReceipt] validatePKCS7 FAIL B: expected SEQUENCE in signedAttrs, got tag=0x%02X", saTag);
+            [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: expected SEQUENCE in signedAttrs, got tag=0x%02X", saTag];
             break;
         }
         RMByteRange attr = { sa.p, sa.p + saLen };
@@ -1054,9 +1063,9 @@ static NSURL *_appleRootCertificateURL = nil;
 
         NSData *attrOID = RMReadOID(&attr);
         if (attrOID && RMOIDEquals(attrOID, kOID_messageDigest, sizeof(kOID_messageDigest))) {
-            NSLog(@"[RMReceipt] validatePKCS7 Step B: found messageDigest OID");
+            [Logger debug:@"[RMReceipt] validatePKCS7 Step B: found messageDigest OID"];
             if (!RMReadTagAndLength(&attr, &saTag, &saLen)) {
-                NSLog(@"[RMReceipt] validatePKCS7 FAIL B: cannot read messageDigest SET");
+                [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: cannot read messageDigest SET"];
                 break;
             }
             if (saTag == RM_ASN1_SET) {
@@ -1077,7 +1086,7 @@ static NSURL *_appleRootCertificateURL = nil;
     NSData *computedDigestData = [NSData dataWithBytes:computedDigest length:digestLength];
 
     if (!foundMessageDigest) {
-        NSLog(@"[RMReceipt] validatePKCS7 FAIL B: messageDigest not found in signedAttrs");
+        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: messageDigest not found in signedAttrs"];
         CFRelease(trust);
         CFRelease(signerCert);
         CFRelease(policy);
@@ -1085,13 +1094,13 @@ static NSURL *_appleRootCertificateURL = nil;
     }
 
     if (![foundMessageDigest isEqualToData:computedDigestData]) {
-        NSLog(@"[RMReceipt] validatePKCS7 FAIL B: message digest mismatch");
+        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: message digest mismatch"];
         CFRelease(trust);
         CFRelease(signerCert);
         CFRelease(policy);
         return nil;
     }
-    NSLog(@"[RMReceipt] validatePKCS7 Step B OK: message digest verified");
+    [Logger debug:@"[RMReceipt] validatePKCS7 Step B OK: message digest verified"];
 
     // --- Step C: Re-encode signedAttrs for signature verification ---
     NSMutableData *reencoded = [NSMutableData data];
@@ -1113,7 +1122,7 @@ static NSURL *_appleRootCertificateURL = nil;
     // --- Step D: Verify RSA signature ---
     SecKeyRef publicKey = SecTrustCopyPublicKey(trust);
     if (!publicKey) {
-        NSLog(@"[RMReceipt] validatePKCS7 FAIL D: could not copy public key from trust");
+        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL D: could not copy public key from trust"];
         CFRelease(trust);
         CFRelease(signerCert);
         CFRelease(policy);
@@ -1128,10 +1137,10 @@ static NSURL *_appleRootCertificateURL = nil;
                                                  &verifyError);
 
     if (!signatureValid) {
-        NSLog(@"[RMReceipt] validatePKCS7 FAIL D: signature verification failed: %@", verifyError);
+        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL D: signature verification failed: %@", verifyError];
         if (verifyError) CFRelease(verifyError);
     } else {
-        NSLog(@"[RMReceipt] validatePKCS7 Step D OK: signature verified");
+        [Logger debug:@"[RMReceipt] validatePKCS7 Step D OK: signature verified"];
     }
 
     CFRelease(publicKey);

@@ -19,6 +19,7 @@
 //
 
 #import "RMStore.h"
+#import "Logger.h"
 
 NSString *const RMStoreErrorDomain = @"net.robotmedia.store";
 NSInteger const RMStoreErrorCodeDownloadCanceled = 300;
@@ -51,7 +52,7 @@ NSString* const RMStoreNotificationTransaction = @"transaction";
 NSString* const RMStoreNotificationTransactions = @"transactions";
 
 #if DEBUG
-#define RMStoreLog(...) NSLog(@"RMStore: %@", [NSString stringWithFormat:__VA_ARGS__]);
+#define RMStoreLog(...) [Logger debug:@"RMStore: %@", [NSString stringWithFormat:__VA_ARGS__]];
 #else
 #define RMStoreLog(...)
 #endif

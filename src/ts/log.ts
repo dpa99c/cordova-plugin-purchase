@@ -1,5 +1,16 @@
 namespace CdvPurchase
 {
+    /** A log message emitted by the native purchase bridge. */
+    export interface NativeLogMessage {
+        /** Native log severity. */
+        level: 'debug' | 'info' | 'warning' | 'error';
+        /** Message including the native logger's context prefix. */
+        message: string;
+    }
+
+    /** Receives log messages emitted by the native purchase bridge. */
+    export type NativeLogCallback = (message: NativeLogMessage) => void;
+
     /**
      * Desired logging level for the {@link Logger}
      *
