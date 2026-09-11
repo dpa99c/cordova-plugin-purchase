@@ -60,6 +60,7 @@ const { store, ProductType, Platform, LogLevel } = CdvPurchase;
 - [Iaptic](../classes/CdvPurchase.Iaptic.md)
 - [Logger](../classes/CdvPurchase.Logger.md)
 - [Offer](../classes/CdvPurchase.Offer.md)
+- [OfflineEntitlements](../classes/CdvPurchase.OfflineEntitlements.md)
 - [PaymentRequestPromise](../classes/CdvPurchase.PaymentRequestPromise.md)
 - [Product](../classes/CdvPurchase.Product.md)
 - [Receipt](../classes/CdvPurchase.Receipt.md)
@@ -76,8 +77,12 @@ const { store, ProductType, Platform, LogLevel } = CdvPurchase;
 - [IRegisterProduct](../interfaces/CdvPurchase.IRegisterProduct.md)
 - [IapticConfig](../interfaces/CdvPurchase.IapticConfig.md)
 - [NativeLogMessage](../interfaces/CdvPurchase.NativeLogMessage.md)
+- [OfflineEntitlementEvent](../interfaces/CdvPurchase.OfflineEntitlementEvent.md)
+- [OfflineEntitlementsOptions](../interfaces/CdvPurchase.OfflineEntitlementsOptions.md)
+- [OfflineStorageAdapter](../interfaces/CdvPurchase.OfflineStorageAdapter.md)
 - [PaymentRequest](../interfaces/CdvPurchase.PaymentRequest.md)
 - [PaymentRequestItem](../interfaces/CdvPurchase.PaymentRequestItem.md)
+- [PersistedPurchase](../interfaces/CdvPurchase.PersistedPurchase.md)
 - [PostalAddress](../interfaces/CdvPurchase.PostalAddress.md)
 - [PricingPhase](../interfaces/CdvPurchase.PricingPhase.md)
 - [Storefront](../interfaces/CdvPurchase.Storefront.md)
@@ -231,7 +236,7 @@ ___
 
 ### PLUGIN\_VERSION
 
-• `Const` **PLUGIN\_VERSION**: ``"13.17.0"``
+• `Const` **PLUGIN\_VERSION**: ``"13.18.0"``
 
 Current release number of the plugin.
 

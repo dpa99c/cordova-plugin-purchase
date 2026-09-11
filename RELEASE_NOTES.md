@@ -1,6 +1,80 @@
 # Release Notes - Cordova Plugin Purchase
 
+## 13.18
+
+### 13.18.0
+
+#### (feat) OfflineEntitlements — answer "is this product owned?" when the device is offline
+
+New `CdvPurchase.OfflineEntitlements` helper class persists a subset of `VerifiedPurchase` to device storage on each `verified` event, reloads it at app launch, and answers `isOwned()` when the device is offline or has just restarted without connectivity. Phase 1 — unsigned cache (no JWT, no crypto, no server changes).
+
+`store.owned()` itself is unchanged — it still checks the in-memory verified and local receipts. `OfflineEntitlements` adds a **parallel** check against a persisted cache, so you can combine both:
+
+```ts
+const offline = new CdvPurchase.OfflineEntitlements(store, {
+    gracePeriodMs: 30 * 24 * 60 * 60 * 1000, // 30 days
+    onExpiredOffline: 'readonly',
+    detectClockRollback: true,
+});
+
+await offline.ready();
+
+function isUserPremium(): boolean {
+    return store.owned('premium') || offline.isOwned('premium');
+}
+```
+
+Use `find()` to retrieve the persisted entitlement details — expiry date, renewal intent, last renewal date, etc. — without digging into local storage by hand:
+
+```ts
+const entitlement = offline.find('premium');
+if (entitlement?.expiryDate) {
+    const daysLeft = Math.ceil((entitlement.expiryDate - Date.now()) / 86400000);
+    showRenewalBanner(daysLeft);
+}
+```
+
+Options:
+
+- `storage` — pluggable `OfflineStorageAdapter` (defaults to a `localStorage` wrapper). For long-offline deployments (weeks without connectivity), pass a file-based or secure-storage adapter — `localStorage` can be evicted by the WebView under storage pressure.
+- `gracePeriodMs` — grace window after a subscription's `expiryDate` during which it's still considered owned (default 30 days).
+- `onExpiredOffline` — behavior when the grace period has elapsed and the device is still offline: `'readonly'` keeps granting access (default), `'deny'` revokes it.
+- `detectClockRollback` — if `true`, deny access when the persisted `lastSeenTimestamp` is in the future relative to `now` (clock tampering).
+
+Events (`offline.onEvent(event => ...)`) fire on `grace`, `readonly`, `clock_rollback`, `entitlement_missing`, and `expired` transitions, deduplicated per `productId`.
+
+`offline.clear()` removes all persisted entitlements (for user logout).
+
+#### Companion plugin compatibility
+
+**StoreKit 2 Plugin**, **Braintree Plugin** and **Apple Pay Plugin** are unaffected — `OfflineEntitlements` is a TypeScript-only helper with no native code, no version bump required.
+
 ## 13.17
+
+### 13.17.2
+
+#### (android) Prevent crashes when the Google Play BillingClient disconnects mid-flow
+
+The purchase flow could crash with a null `PendingIntent` (or an NPE on `mBillingClient`) when the billing service disconnected between the connection-state check and the actual operation — the `mIsServiceConnected` flag reported "ready" while the underlying `BillingClient` was not ([#1710](https://github.com/j3k0/cordova-plugin-purchase/issues/1710)). Two corrections in `PurchasePlugin`:
+
+- **`executeServiceRequest()` now checks `mBillingClient.isReady()` in addition to the flag.** When the two are out of sync it resets the flag and forces a reconnect, instead of proceeding against a dead client.
+- **`initiatePurchaseFlow()` re-validates inside the UI-thread lambda.** It re-checks activity validity (`isFinishing`/`isDestroyed`) and BillingClient readiness at launch time, since conditions can change during the reconnection delay.
+
+A follow-up ([#1711](https://github.com/j3k0/cordova-plugin-purchase/pull/1711)) adds `mBillingClient != null` guards at both call sites — defensive, since `mBillingClient` is initialised in `onCreate` and never nulled in practice.
+
+#### Companion plugin compatibility
+
+**StoreKit 2 Plugin**, **Braintree Plugin** and **Apple Pay Plugin** are unaffected — the changes are Android / Google Play only, no version bump required.
+
+### 13.17.1
+
+#### (fix) Device info from `@capacitor/device` now sent to receipt validator
+
+When `cordova-plugin-device` is not installed — typical in Capacitor apps — the plugin previously sent no device information to the receipt validator. It now falls back to `@capacitor/device` via `window.Capacitor.Plugins.Device`, so the validator receives device info regardless of which device plugin is available ([#1708](https://github.com/j3k0/cordova-plugin-purchase/issues/1708)).
+
+#### (fix) Fraud fingerprint manufacturer field was overwritten instead of appended
+
+The fraud fingerprint construction used `=` instead of `+=` when adding the device manufacturer, so only the manufacturer was stored — discarding the model and other preceding fields. The fingerprint now correctly combines model and manufacturer as intended.
 
 ### 13.17.0
 
@@ -1333,7 +1407,7 @@ Information sent to the validator can be customized with `store.validator_privac
 
 Default: `store.validator_privacy_policy = ['fraud', 'support', 'analytics']`
 
-**Important**: this feature requires the `cordova-plugin-device` plugin to be installed!
+**Important**: this feature requires device information. On Cordova, install the `cordova-plugin-device` plugin. On Capacitor, `@capacitor/device` is detected automatically via the plugin proxy — no extra install needed.
 
 See 58e24c3
 

@@ -1,6 +1,6 @@
 {
   "name": "capacitor-plugin-cdv-purchase",
-  "version": "13.17.0",
+  "version": "13.18.0",
   "description": "In-App Purchases for Capacitor — iOS (StoreKit 2) and Android (Google Play Billing)",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -38,6 +38,7 @@
     "dist/",
     "types/",
     "www/",
+    "src/ts/platforms/iaptic-js/iaptic-js-types.d.ts",
     "android/",
     "!android/build",
     "ios/",

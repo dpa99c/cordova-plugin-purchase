@@ -13,6 +13,7 @@
 /// <reference path="internal/receipts-monitor.ts" />
 /// <reference path="internal/expiry-monitor.ts" />
 /// <reference path="utils/to-uuid.ts" />
+/// <reference path="offline-entitlements.ts" />
 
 /**
  * Namespace for the cordova-plugin-purchase plugin.
@@ -47,7 +48,7 @@ namespace CdvPurchase {
     /**
      * Current release number of the plugin.
      */
-    export const PLUGIN_VERSION = '13.17.0';
+    export const PLUGIN_VERSION = '13.18.0';
 
     /**
      * Entry class of the plugin.
