@@ -4690,7 +4690,7 @@ var CdvPurchase;
                         transactionDate: string;
                         discountId: string;
                     }[] = [];
-
+    
                     private timer: number | null = null;
                     */
                     /** List of transaction updates to process */
