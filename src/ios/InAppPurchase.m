@@ -791,8 +791,26 @@ static NSString *dateToString(NSDate* date) {
 
     NSString *base64 = command.arguments[0];
     NSData *receiptData = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+    [Logger debug:@"setAppStoreReceipt: decoded %lu bytes from Base64 input", (unsigned long)receiptData.length];
+    if (!receiptData) {
+        [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
+                                                                  messageAsString:@"Receipt is not valid Base64"]
+                                    callbackId:command.callbackId];
+        return;
+    }
     RMAppReceipt *receipt = [RMAppReceipt receiptWithPKCS7Data:receiptData];
-    if (!receipt || ![self.verifier verifyAppReceipt:receipt]) {
+    if (!receipt) {
+        [Logger error:@"setAppStoreReceipt: could not parse decoded receipt data"];
+        [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
+                                                                  messageAsString:@"Receipt failed parsing"]
+                                    callbackId:command.callbackId];
+        return;
+    }
+    BOOL verified = [self.verifier verifyAppReceipt:receipt];
+    [Logger debug:@"setAppStoreReceipt: parsed bundle=%@ version=%@ purchases=%lu verified=%@",
+                 receipt.bundleIdentifier, receipt.appVersion,
+                 (unsigned long)receipt.inAppPurchases.count, verified ? @"YES" : @"NO"];
+    if (!verified) {
         [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR
                                                                   messageAsString:@"Receipt failed validation"]
                                     callbackId:command.callbackId];

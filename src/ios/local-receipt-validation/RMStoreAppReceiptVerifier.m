@@ -20,6 +20,7 @@
 
 #import "RMStoreAppReceiptVerifier.h"
 #import "RMAppReceipt.h"
+#import "Logger.h"
 
 @implementation RMStoreAppReceiptVerifier
 
@@ -74,13 +75,21 @@
 
 - (BOOL)verifyAppReceipt:(RMAppReceipt*)receipt
 {
-    if (!receipt) return NO;
+    if (!receipt) {
+        [Logger error:@"[RMReceipt] App receipt validation failed: no parsed receipt"];
+        return NO;
+    }
     
-    if (![receipt.bundleIdentifier isEqualToString:self.bundleIdentifier]) return NO;
+    if (![receipt.bundleIdentifier isEqualToString:self.bundleIdentifier]) {
+        [Logger error:@"[RMReceipt] App receipt validation failed: bundle identifier mismatch (receipt=%@ expected=%@)",
+                      receipt.bundleIdentifier, self.bundleIdentifier];
+        return NO;
+    }
     
-    if (![receipt.appVersion isEqualToString:self.bundleVersion]) return NO;
-    
-    if (![receipt verifyReceiptHash]) return NO;
+    if (![receipt verifyReceiptHash]) {
+        [Logger error:@"[RMReceipt] App receipt validation failed: device receipt hash mismatch"];
+        return NO;
+    }
     
     return YES;
 }

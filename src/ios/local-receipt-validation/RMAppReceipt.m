@@ -706,8 +706,9 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
         return nil;
     }
 
-    // SignedAttributes [0] IMPLICIT
+    // SignedAttributes [0] IMPLICIT (optional in Apple's receipt SignerInfo)
     if (signerSet.p < signerSet.end) {
+        const uint8_t *signedAttrsStart = signerSet.p;
         if (!RMReadTagAndLength(&signerSet, &tag, &len)) {
 #if RM_PKCS7_DEBUG
             [Logger debug:@"[RMReceipt] VERIFY WARNING step 9e: cannot read SignedAttributes"];
@@ -719,6 +720,12 @@ static NSData* RMVerifyPKCS7Signature(NSData *pkcs7Data,
             signerSet.p += len;
 #if RM_PKCS7_DEBUG
             [Logger debug:@"[RMReceipt] VERIFY Step 9e OK: SignedAttributes len=%ld", len];
+#endif
+        } else {
+            // Receipts without signed attributes place SignatureAlgorithm here.
+            signerSet.p = signedAttrsStart;
+#if RM_PKCS7_DEBUG
+            [Logger debug:@"[RMReceipt] VERIFY Step 9e: no signed attributes (next tag=0x%02X)", tag];
 #endif
         }
     }
@@ -938,11 +945,6 @@ static NSURL *_appleRootCertificateURL = nil;
         [Logger debug:@"[RMReceipt] validatePKCS7: no signature data"];
         return nil;
     }
-    if (!signedAttrsContent) {
-        [Logger debug:@"[RMReceipt] validatePKCS7: no signed attributes"];
-        return nil;
-    }
-
     [Logger debug:@"[RMReceipt] validatePKCS7: all components extracted. cert=%lu sig=%lu attrs=%lu content=%lu",
           (unsigned long)signerCertData.length, (unsigned long)signatureData.length,
           (unsigned long)signedAttrsContent.length, (unsigned long)contentData.length];
@@ -1044,80 +1046,88 @@ static NSURL *_appleRootCertificateURL = nil;
     }
     [Logger debug:@"[RMReceipt] validatePKCS7 Step A OK: certificate chain trusted"];
 
-    // --- Step B: Verify message digest in signedAttrs matches content ---
-    RMByteRange sa = { signedAttrsContent.bytes, (const uint8_t*)signedAttrsContent.bytes + signedAttrsContent.length };
-    NSData *foundMessageDigest = nil;
+    NSData *signaturePayload;
+    if (signedAttrsContent) {
+        // --- Step B: Verify message digest in signedAttrs matches content ---
+        RMByteRange sa = { signedAttrsContent.bytes, (const uint8_t*)signedAttrsContent.bytes + signedAttrsContent.length };
+        NSData *foundMessageDigest = nil;
 
-    while (sa.p < sa.end) {
-        int saTag; long saLen;
-        if (!RMReadTagAndLength(&sa, &saTag, &saLen)) {
-            [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: cannot read signedAttrs SEQUENCE at offset %ld", (long)(sa.p - (const uint8_t*)signedAttrsContent.bytes)];
-            break;
-        }
-        if (saTag != RM_ASN1_SEQUENCE) {
-            [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: expected SEQUENCE in signedAttrs, got tag=0x%02X", saTag];
-            break;
-        }
-        RMByteRange attr = { sa.p, sa.p + saLen };
-        sa.p += saLen;
-
-        NSData *attrOID = RMReadOID(&attr);
-        if (attrOID && RMOIDEquals(attrOID, kOID_messageDigest, sizeof(kOID_messageDigest))) {
-            [Logger debug:@"[RMReceipt] validatePKCS7 Step B: found messageDigest OID"];
-            if (!RMReadTagAndLength(&attr, &saTag, &saLen)) {
-                [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: cannot read messageDigest SET"];
+        while (sa.p < sa.end) {
+            int saTag; long saLen;
+            if (!RMReadTagAndLength(&sa, &saTag, &saLen)) {
+                [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: cannot read signedAttrs SEQUENCE at offset %ld", (long)(sa.p - (const uint8_t*)signedAttrsContent.bytes)];
                 break;
             }
-            if (saTag == RM_ASN1_SET) {
-                attr.end = attr.p + saLen;
-                foundMessageDigest = RMReadOctetString(&attr);
+            if (saTag != RM_ASN1_SEQUENCE) {
+                [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: expected SEQUENCE in signedAttrs, got tag=0x%02X", saTag];
+                break;
             }
-            break;
+            RMByteRange attr = { sa.p, sa.p + saLen };
+            sa.p += saLen;
+
+            NSData *attrOID = RMReadOID(&attr);
+            if (attrOID && RMOIDEquals(attrOID, kOID_messageDigest, sizeof(kOID_messageDigest))) {
+                [Logger debug:@"[RMReceipt] validatePKCS7 Step B: found messageDigest OID"];
+                if (!RMReadTagAndLength(&attr, &saTag, &saLen)) {
+                    [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: cannot read messageDigest SET"];
+                    break;
+                }
+                if (saTag == RM_ASN1_SET) {
+                    attr.end = attr.p + saLen;
+                    foundMessageDigest = RMReadOctetString(&attr);
+                }
+                break;
+            }
         }
-    }
 
-    // Compute digest of the content
-    unsigned char computedDigest[CC_SHA256_DIGEST_LENGTH];
-    if (useSHA256) {
-        CC_SHA256(contentData.bytes, (CC_LONG)contentData.length, computedDigest);
+        // Compute digest of the content.
+        unsigned char computedDigest[CC_SHA256_DIGEST_LENGTH];
+        if (useSHA256) {
+            CC_SHA256(contentData.bytes, (CC_LONG)contentData.length, computedDigest);
+        } else {
+            CC_SHA1(contentData.bytes, (CC_LONG)contentData.length, computedDigest);
+        }
+        NSData *computedDigestData = [NSData dataWithBytes:computedDigest length:digestLength];
+
+        if (!foundMessageDigest) {
+            [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: messageDigest not found in signedAttrs"];
+            CFRelease(trust);
+            CFRelease(signerCert);
+            CFRelease(policy);
+            return nil;
+        }
+
+        if (![foundMessageDigest isEqualToData:computedDigestData]) {
+            [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: message digest mismatch"];
+            CFRelease(trust);
+            CFRelease(signerCert);
+            CFRelease(policy);
+            return nil;
+        }
+        [Logger debug:@"[RMReceipt] validatePKCS7 Step B OK: message digest verified"];
+
+        // CMS signs the SET encoding, while the parser stores only its contents.
+        NSMutableData *reencoded = [NSMutableData data];
+        uint8_t setTag = 0x31; // SET, CONSTRUCTED
+        [reencoded appendBytes:&setTag length:1];
+        NSUInteger saLen = signedAttrsContent.length;
+        if (saLen < 128) {
+            uint8_t byte = (uint8_t)saLen;
+            [reencoded appendBytes:&byte length:1];
+        } else if (saLen < 256) {
+            uint8_t bytes[] = { 0x81, (uint8_t)saLen };
+            [reencoded appendBytes:bytes length:2];
+        } else {
+            uint8_t bytes[] = { 0x82, (uint8_t)(saLen >> 8), (uint8_t)(saLen & 0xFF) };
+            [reencoded appendBytes:bytes length:3];
+        }
+        [reencoded appendData:signedAttrsContent];
+        signaturePayload = reencoded;
     } else {
-        CC_SHA1(contentData.bytes, (CC_LONG)contentData.length, computedDigest);
+        // Apple receipts may omit signed attributes and sign the content directly.
+        [Logger debug:@"[RMReceipt] validatePKCS7: no signed attributes; verifying content directly"];
+        signaturePayload = contentData;
     }
-    NSData *computedDigestData = [NSData dataWithBytes:computedDigest length:digestLength];
-
-    if (!foundMessageDigest) {
-        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: messageDigest not found in signedAttrs"];
-        CFRelease(trust);
-        CFRelease(signerCert);
-        CFRelease(policy);
-        return nil;
-    }
-
-    if (![foundMessageDigest isEqualToData:computedDigestData]) {
-        [Logger debug:@"[RMReceipt] validatePKCS7 FAIL B: message digest mismatch"];
-        CFRelease(trust);
-        CFRelease(signerCert);
-        CFRelease(policy);
-        return nil;
-    }
-    [Logger debug:@"[RMReceipt] validatePKCS7 Step B OK: message digest verified"];
-
-    // --- Step C: Re-encode signedAttrs for signature verification ---
-    NSMutableData *reencoded = [NSMutableData data];
-    uint8_t setTag = 0x31; // SET, CONSTRUCTED
-    [reencoded appendBytes:&setTag length:1];
-    NSUInteger saLen = signedAttrsContent.length;
-    if (saLen < 128) {
-        uint8_t byte = (uint8_t)saLen;
-        [reencoded appendBytes:&byte length:1];
-    } else if (saLen < 256) {
-        uint8_t bytes[] = { 0x81, (uint8_t)saLen };
-        [reencoded appendBytes:bytes length:2];
-    } else {
-        uint8_t bytes[] = { 0x82, (uint8_t)(saLen >> 8), (uint8_t)(saLen & 0xFF) };
-        [reencoded appendBytes:bytes length:3];
-    }
-    [reencoded appendData:signedAttrsContent];
 
     // --- Step D: Verify RSA signature ---
     SecKeyRef publicKey = SecTrustCopyPublicKey(trust);
@@ -1130,9 +1140,16 @@ static NSURL *_appleRootCertificateURL = nil;
     }
 
     CFErrorRef verifyError = NULL;
+    unsigned char signatureDigest[CC_SHA256_DIGEST_LENGTH];
+    if (useSHA256) {
+        CC_SHA256(signaturePayload.bytes, (CC_LONG)signaturePayload.length, signatureDigest);
+    } else {
+        CC_SHA1(signaturePayload.bytes, (CC_LONG)signaturePayload.length, signatureDigest);
+    }
+    NSData *signatureDigestData = [NSData dataWithBytes:signatureDigest length:digestLength];
     BOOL signatureValid = SecKeyVerifySignature(publicKey,
                                                  algorithm,
-                                                 (__bridge CFDataRef)reencoded,
+                                                 (__bridge CFDataRef)signatureDigestData,
                                                  (__bridge CFDataRef)signatureData,
                                                  &verifyError);
 
