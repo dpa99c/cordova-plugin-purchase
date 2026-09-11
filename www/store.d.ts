@@ -3037,7 +3037,14 @@ declare namespace CdvPurchase {
                 transactionUpdated(state: Bridge.TransactionState, errorCode: ErrorCode | undefined, errorText: string | undefined, transactionIdentifier: string, productId: string, transactionReceipt: never, originalTransactionIdentifier: string | undefined, transactionDate: string | undefined, discountId: string | undefined, expirationDate?: string | undefined, jwsRepresentation?: string | undefined, quantity?: number | undefined): void;
                 restoreCompletedTransactionsFinished(): void;
                 restoreCompletedTransactionsFailed(errorCode: ErrorCode): void;
-                parseReceiptArgs(args: [string, string, string, number, string]): ApplicationReceipt;
+                parseReceiptArgs(args: [
+                    base64: string,
+                    bundleIdentifier: string,
+                    bundleShortVersion: string,
+                    bundleNumericVersion: number,
+                    bundleSignature: string,
+                    payload?: ApplicationReceiptPayload | null
+                ]): ApplicationReceipt;
                 refreshReceipts(successCb: (receipt: ApplicationReceipt) => void, errorCb: (code: ErrorCode, message: string) => void): void;
                 /** Retrieve the storefront country code from StoreKit */
                 getStorefront(): Promise<string | undefined>;
@@ -3048,6 +3055,37 @@ declare namespace CdvPurchase {
 }
 declare namespace CdvPurchase {
     namespace AppleAppStore {
+        /**
+         * Parsed payload returned by native local receipt validation.
+         */
+        interface ApplicationReceiptPayload {
+            /** Bundle identifier recorded in the receipt. */
+            bundleIdentifier: string | null;
+            /** Version recorded in the receipt. */
+            appVersion: string | null;
+            /** Original app version recorded in the receipt. */
+            originalAppVersion: string | null;
+            /** Expiration date for the application receipt, when present. */
+            expirationDate: string | null;
+            /** In-app purchases recorded in the receipt. */
+            inAppPurchases: ApplicationReceiptPurchase[];
+            /** Whether the native receipt verifier accepted the receipt. */
+            verified: boolean;
+        }
+        /**
+         * In-app purchase entry parsed from an application receipt.
+         */
+        interface ApplicationReceiptPurchase {
+            quantity: number | null;
+            productIdentifier: string | null;
+            transactionIdentifier: string | null;
+            originalTransactionIdentifier: string | null;
+            purchaseDate: string | null;
+            originalPurchaseDate: string | null;
+            subscriptionExpirationDate: string | null;
+            cancellationDate: string | null;
+            webOrderLineItemID: number | null;
+        }
         /**
          * Application receipt with information about the app bundle.
          */
@@ -3062,6 +3100,8 @@ declare namespace CdvPurchase {
             bundleNumericVersion: number;
             /** Bundle signature */
             bundleSignature: string;
+            /** Parsed receipt payload returned by native local receipt validation. */
+            payload?: ApplicationReceiptPayload | null;
         }
         /**
          * The signed discount applied to a payment
@@ -3157,7 +3197,8 @@ declare namespace CdvPurchase {
                 bundleIdentifier: string,
                 bundleShortVersion: string,
                 bundleNumericVersion: number,
-                bundleSignature: string
+                bundleSignature: string,
+                payload?: ApplicationReceiptPayload | null
             ];
             export interface BridgeCallbacks {
                 error: (code: ErrorCode, message: string, options?: {

@@ -81,4 +81,37 @@ describe('native purchase bridge additions', () => {
       ['cmF3LXJlY2VpcHQ='],
     );
   });
+
+  test('preserves the parsed receipt payload returned by native refresh', () => {
+    const payload = {
+      bundleIdentifier: 'com.example.app',
+      appVersion: '1.0',
+      originalAppVersion: '1.0',
+      expirationDate: null,
+      inAppPurchases: [{
+        quantity: 1,
+        productIdentifier: 'com.example.app.walk',
+        transactionIdentifier: 'transaction-1',
+        originalTransactionIdentifier: 'transaction-1',
+        purchaseDate: '2026-09-11T10:14:02Z',
+        originalPurchaseDate: '2026-09-11T10:14:02Z',
+        subscriptionExpirationDate: null,
+        cancellationDate: null,
+        webOrderLineItemID: 0,
+      }],
+      verified: true,
+    };
+    exec.mockImplementation((success: (value: unknown[]) => void,
+                             _error: unknown, _service: string, action: string) => {
+      if (action === 'appStoreRefreshReceipt') {
+        success(['base64-receipt', 'com.example.app', '1.0', 1, null, payload]);
+      }
+    });
+    const bridge = new CdvPurchase.AppleAppStore.Bridge.Bridge();
+    const success = jest.fn();
+
+    bridge.refreshReceipts(success, jest.fn());
+
+    expect(success).toHaveBeenCalledWith(expect.objectContaining({payload}));
+  });
 });

@@ -2,6 +2,39 @@ namespace CdvPurchase {
     export namespace AppleAppStore {
 
         /**
+         * Parsed payload returned by native local receipt validation.
+         */
+        export interface ApplicationReceiptPayload {
+            /** Bundle identifier recorded in the receipt. */
+            bundleIdentifier: string | null;
+            /** Version recorded in the receipt. */
+            appVersion: string | null;
+            /** Original app version recorded in the receipt. */
+            originalAppVersion: string | null;
+            /** Expiration date for the application receipt, when present. */
+            expirationDate: string | null;
+            /** In-app purchases recorded in the receipt. */
+            inAppPurchases: ApplicationReceiptPurchase[];
+            /** Whether the native receipt verifier accepted the receipt. */
+            verified: boolean;
+        }
+
+        /**
+         * In-app purchase entry parsed from an application receipt.
+         */
+        export interface ApplicationReceiptPurchase {
+            quantity: number | null;
+            productIdentifier: string | null;
+            transactionIdentifier: string | null;
+            originalTransactionIdentifier: string | null;
+            purchaseDate: string | null;
+            originalPurchaseDate: string | null;
+            subscriptionExpirationDate: string | null;
+            cancellationDate: string | null;
+            webOrderLineItemID: number | null;
+        }
+
+        /**
          * Application receipt with information about the app bundle.
          */
         export interface ApplicationReceipt {
@@ -15,6 +48,8 @@ namespace CdvPurchase {
             bundleNumericVersion: number;
             /** Bundle signature */
             bundleSignature: string;
+            /** Parsed receipt payload returned by native local receipt validation. */
+            payload?: ApplicationReceiptPayload | null;
         }
 
         /**
@@ -148,7 +183,8 @@ namespace CdvPurchase {
                 bundleIdentifier: string,
                 bundleShortVersion: string,
                 bundleNumericVersion: number,
-                bundleSignature: string
+                bundleSignature: string,
+                payload?: ApplicationReceiptPayload | null
             ]
 
 
@@ -609,13 +645,15 @@ namespace CdvPurchase {
                     const bundleShortVersion = args[2];
                     const bundleNumericVersion = args[3];
                     const bundleSignature = args[4];
+                    const payload = args[5];
                     log('infoPlist: ' + bundleIdentifier + "," + bundleShortVersion + "," + bundleNumericVersion + "," + bundleSignature);
                     return {
                         appStoreReceipt: base64,
                         bundleIdentifier: bundleIdentifier,
                         bundleShortVersion: bundleShortVersion,
                         bundleNumericVersion: bundleNumericVersion,
-                        bundleSignature: bundleSignature
+                        bundleSignature: bundleSignature,
+                        payload: payload
                     };
                 }
 

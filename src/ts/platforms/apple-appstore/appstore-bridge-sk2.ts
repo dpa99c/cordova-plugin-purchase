@@ -336,7 +336,12 @@ namespace CdvPurchase {
                     protectCall(this.options.restoreFailed, 'options.restoreFailed', errorCode);
                 }
 
-                parseReceiptArgs(args: [string, string, string, number, string]):
+                parseReceiptArgs(args: [base64: string,
+                    bundleIdentifier: string,
+                    bundleShortVersion: string,
+                    bundleNumericVersion: number,
+                    bundleSignature: string,
+                    payload?: ApplicationReceiptPayload | null]):
                     ApplicationReceipt {
                     return {
                         appStoreReceipt: args[0],
@@ -344,12 +349,18 @@ namespace CdvPurchase {
                         bundleShortVersion: args[2],
                         bundleNumericVersion: args[3],
                         bundleSignature: args[4],
+                        payload: args[5],
                     };
                 }
 
                 refreshReceipts(successCb: (receipt: ApplicationReceipt) => void,
                                 errorCb: (code: ErrorCode, message: string) => void) {
-                    const loaded = (args: [string, string, string, number, string]) => {
+                    const loaded = (args: [base64: string,
+                        bundleIdentifier: string,
+                        bundleShortVersion: string,
+                        bundleNumericVersion: number,
+                        bundleSignature: string,
+                        payload?: ApplicationReceiptPayload | null]) => {
                         const data = this.parseReceiptArgs(args);
                         this.appStoreReceipt = data;
                         protectCall(this.options.receiptsRefreshed, 'options.receiptsRefreshed', data);
@@ -380,7 +391,12 @@ namespace CdvPurchase {
 
                 loadReceipts(callback: (receipt: ApplicationReceipt) => void,
                              errorCb: (code: ErrorCode, message: string) => void) {
-                    const loaded = (args: [string, string, string, number, string]) => {
+                    const loaded = (args: [base64: string,
+                        bundleIdentifier: string,
+                        bundleShortVersion: string,
+                        bundleNumericVersion: number,
+                        bundleSignature: string,
+                        payload?: ApplicationReceiptPayload | null]) => {
                         const data = this.parseReceiptArgs(args);
                         this.appStoreReceipt = data;
                         protectCall(callback, 'loadReceipts.callback', data);

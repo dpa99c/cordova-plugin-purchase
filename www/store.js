@@ -4595,6 +4595,7 @@ var CdvPurchase;
                         bundleShortVersion: args[2],
                         bundleNumericVersion: args[3],
                         bundleSignature: args[4],
+                        payload: args[5],
                     };
                 }
                 refreshReceipts(successCb, errorCb) {
@@ -4989,13 +4990,15 @@ var CdvPurchase;
                     const bundleShortVersion = args[2];
                     const bundleNumericVersion = args[3];
                     const bundleSignature = args[4];
+                    const payload = args[5];
                     log('infoPlist: ' + bundleIdentifier + "," + bundleShortVersion + "," + bundleNumericVersion + "," + bundleSignature);
                     return {
                         appStoreReceipt: base64,
                         bundleIdentifier: bundleIdentifier,
                         bundleShortVersion: bundleShortVersion,
                         bundleNumericVersion: bundleNumericVersion,
-                        bundleSignature: bundleSignature
+                        bundleSignature: bundleSignature,
+                        payload: payload
                     };
                 }
                 refreshReceipts(successCb, errorCb) {
